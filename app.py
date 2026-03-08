@@ -445,62 +445,30 @@ def init_db():
     # Tabla Torneos
     run_action('''CREATE TABLE IF NOT EXISTS torneos
                  (id SERIAL PRIMARY KEY, 
-                  nombre TEXT, fecha TEXT, categoria TEXT, estado TEXT)''')
+                  nombre TEXT, fecha TEXT, categoria TEXT, estado TEXT, es_puntuable INTEGER DEFAULT 1)''')
     # Tabla Resultados / Partidos
     run_action('''CREATE TABLE IF NOT EXISTS partidos
                  (id SERIAL PRIMARY KEY, 
                   torneo_id INTEGER, pareja1 TEXT, pareja2 TEXT, 
-                  resultado TEXT, instancia TEXT)''')
+                  resultado TEXT, instancia TEXT,
+                  bracket_pos INTEGER, estado_partido TEXT DEFAULT 'Próximo',
+                  ganador TEXT, horario TEXT, cancha TEXT)''')
     # Tabla Zonas
     run_action('''CREATE TABLE IF NOT EXISTS zonas
                  (id SERIAL PRIMARY KEY, 
                   torneo_id INTEGER, nombre_zona TEXT, pareja TEXT)''')
     
-    # Migración: Agregar columna bracket_pos si no existe (para lógica de llaves)
-    run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS bracket_pos INTEGER")
-    
-    # Migración: Agregar columna estado_partido
-    run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS estado_partido TEXT DEFAULT 'Próximo'")
-
-    # Migración: Agregar columna ganador a partidos
-    run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS ganador TEXT")
-
-    # Migración: Agregar columnas de horario y cancha a partidos
-    run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS horario TEXT")
-    run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS cancha TEXT")
-
     # Tabla Fotos
     run_action('''CREATE TABLE IF NOT EXISTS fotos
                  (id SERIAL PRIMARY KEY, 
                   nombre TEXT, imagen BYTEA, fecha TEXT)''')
     
-    # Migración: Agregar columnas de teléfono
-    run_action("ALTER TABLE inscripciones ADD COLUMN IF NOT EXISTS telefono1 TEXT")
-    run_action("ALTER TABLE inscripciones ADD COLUMN IF NOT EXISTS telefono2 TEXT")
-
     # Tabla Jugadores (Niveles)
-    # Modificada para incluir credenciales y celular como ID lógico
     run_action('''CREATE TABLE IF NOT EXISTS jugadores
                  (id SERIAL PRIMARY KEY, 
                   dni TEXT UNIQUE, celular TEXT UNIQUE, password TEXT, nombre TEXT, apellido TEXT,
-                  localidad TEXT, categoria_actual TEXT, categoria_anterior TEXT, foto BYTEA)''')
-    
-    # Migración: Agregar columna torneo_id a inscripciones si no existe
-    run_action("ALTER TABLE inscripciones ADD COLUMN IF NOT EXISTS torneo_id INTEGER")
-
-    # Migración: Agregar columnas nuevas a jugadores si no existen (para compatibilidad)
-    run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS celular TEXT UNIQUE")
-    run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS password TEXT")
-    run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS apellido TEXT")
-
-    # Migración: Agregar columna estado_cuenta a jugadores
-    run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS estado_cuenta TEXT DEFAULT 'Pendiente'")
-
-    # Migración: Agregar columna dni a jugadores
-    run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS dni TEXT")
-
-    # Migración: Agregar columna es_puntuable a torneos
-    run_action("ALTER TABLE torneos ADD COLUMN IF NOT EXISTS es_puntuable INTEGER DEFAULT 1")
+                  localidad TEXT, categoria_actual TEXT, categoria_anterior TEXT, foto BYTEA,
+                  estado_cuenta TEXT DEFAULT 'Pendiente')''')
 
     # Tabla Eventos (Afiches y Configuración Extra)
     run_action('''CREATE TABLE IF NOT EXISTS eventos
@@ -525,6 +493,28 @@ def init_db():
                  (id SERIAL PRIMARY KEY, 
                   torneo TEXT, pareja1 TEXT, pareja2 TEXT, 
                   marcador TEXT)''')
+
+    # --- MIGRACIONES (Para compatibilidad con DBs existentes) ---
+    try:
+        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS bracket_pos INTEGER")
+        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS estado_partido TEXT DEFAULT 'Próximo'")
+        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS ganador TEXT")
+        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS horario TEXT")
+        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS cancha TEXT")
+        
+        run_action("ALTER TABLE inscripciones ADD COLUMN IF NOT EXISTS telefono1 TEXT")
+        run_action("ALTER TABLE inscripciones ADD COLUMN IF NOT EXISTS telefono2 TEXT")
+        run_action("ALTER TABLE inscripciones ADD COLUMN IF NOT EXISTS torneo_id INTEGER")
+
+        run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS celular TEXT UNIQUE")
+        run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS password TEXT")
+        run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS apellido TEXT")
+        run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS estado_cuenta TEXT DEFAULT 'Pendiente'")
+        run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS dni TEXT")
+
+        run_action("ALTER TABLE torneos ADD COLUMN IF NOT EXISTS es_puntuable INTEGER DEFAULT 1")
+    except Exception:
+        pass
 
 def limpiar_cache():
     st.cache_data.clear()
