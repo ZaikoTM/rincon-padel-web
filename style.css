@@ -1,0 +1,3 @@
+.stTabs [data-baseweb="tab-list"] { gap: 2px; }
+.stTabs [data-baseweb="tab"] { background-color: #f0f2f6; border-radius: 4px 4px 0px 0px; padding: 10px 20px; color: #31333F; border: 1px solid #ddd; border-bottom: none; }
+.stTabs [aria-selected="true"] { background-color: #ffffff; font-weight: bold; border-top: 3px solid #4CAF50; }
