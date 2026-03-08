@@ -1,7 +1,6 @@
 streamlit
 pandas
 Pillow
-st-theme
 streamlit-extras
 psycopg2-binary
 sqlalchemy
