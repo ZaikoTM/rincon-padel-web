@@ -10,6 +10,7 @@ import hashlib
 from datetime import datetime, timedelta
 from streamlit_extras.metric_cards import style_metric_cards
 
+from sqlalchemy.exc import OperationalError
 # Configuración de página con estética Rincón Padel
 try:
     logo = Image.open("assets/logo_rincon.png")
@@ -424,17 +425,21 @@ if 'es_admin' not in st.session_state:
 # --- BASE DE DATOS ---
 def run_action(query, params=None, return_id=False):
     """Ejecuta una acción de modificación (INSERT, UPDATE, DELETE) en la DB."""
-    conn = st.connection('postgresql', type='sql')
-    with conn.engine.raw_connection() as raw_conn:
-        with raw_conn.cursor() as cur:
-            cur.execute(query, params)
-            if return_id:
-                # En Postgres usamos RETURNING id, así que hacemos fetch
-                result = cur.fetchone()[0]
-            else:
-                result = None
-        raw_conn.commit()
-    return result
+    try:
+        conn = st.connection('postgresql', type='sql')
+        with conn.engine.raw_connection() as raw_conn:
+            with raw_conn.cursor() as cur:
+                cur.execute(query, params)
+                if return_id:
+                    # En Postgres usamos RETURNING id, así que hacemos fetch
+                    result = cur.fetchone()[0]
+                else:
+                    result = None
+            raw_conn.commit()
+        return result
+    except OperationalError:
+        st.error('⏳ La base de datos está despertando, por favor refresca en 10 segundos.')
+        st.stop()
 
 def init_db():
     # Tabla Inscripciones
