@@ -427,18 +427,18 @@ def run_action(query, params=None, return_id=False):
     """Ejecuta una acción de modificación (INSERT, UPDATE, DELETE) en la DB."""
     try:
         conn = st.connection('postgresql', type='sql')
-        with conn.engine.raw_connection() as raw_conn:
-            with raw_conn.cursor() as cur:
+        with conn.session as s:
+            with s.connection().connection.cursor() as cur:
                 cur.execute(query, params)
                 if return_id:
                     # En Postgres usamos RETURNING id, así que hacemos fetch
                     result = cur.fetchone()[0]
                 else:
                     result = None
-            raw_conn.commit()
+            s.commit()
         return result
-    except OperationalError:
-        st.error('⏳ La base de datos está despertando, por favor refresca en 10 segundos.')
+    except Exception as e:
+        st.error(f'❌ Error de Conexión: {str(e)}')
         st.stop()
 
 def init_db():
