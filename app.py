@@ -10,6 +10,9 @@ import hashlib
 from datetime import datetime, timedelta
 from streamlit_extras.metric_cards import style_metric_cards
 import time
+import requests
+from streamlit_lottie import st_lottie
+import plotly.express as px
 
 from sqlalchemy.exc import OperationalError
 # Configuración de página con estética Rincón Padel
@@ -245,28 +248,6 @@ css_dark_neon = """
         tr:nth-child(odd) { background-color: #121212 !important; }
         tr:hover { box-shadow: inset 0 0 10px rgba(0, 255, 65, 0.2) !important; }
         td { border-bottom: 1px solid #333 !important; color: #ddd !important; }
-
-        /* --- SPINNER PERSONALIZADO (Pelota Padel Neón) --- */
-        div[data-testid="stSpinner"] > div {
-            border: none !important;
-            animation: none !important;
-            width: 0 !important; height: 0 !important; /* Ocultar spinner original */
-        }
-        div[data-testid="stSpinner"]::after {
-            content: '';
-            display: block;
-            width: 25px;
-            height: 25px;
-            background-color: #39FF14;
-            border-radius: 50%;
-            box-shadow: 0 0 15px #39FF14, inset 0 0 5px #fff;
-            animation: bounce 0.5s infinite alternate cubic-bezier(0.5, 0.05, 1, 0.5);
-            margin: 0 auto;
-        }
-        @keyframes bounce {
-            from { transform: translateY(0) scale(1.1); }
-            to { transform: translateY(-50px) scale(0.9); }
-        }
     </style>
 """
 
@@ -944,12 +925,73 @@ def autenticar_usuario(dni, password):
         }
     return None
 
+# --- LOTTIE ANIMATIONS ---
+def load_lottieurl(url):
+    try:
+        r = requests.get(url)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except:
+        return None
+
+# --- GRÁFICO TIMELINE (PLOTLY) ---
+def generar_grafico_timeline(torneo_id):
+    # 1. Obtener datos de partidos con horario
+    df = cargar_datos("SELECT id, pareja1, pareja2, instancia, horario FROM partidos WHERE torneo_id = :torneo_id AND horario IS NOT NULL ORDER BY horario", params={"torneo_id": torneo_id})
+    
+    if df.empty:
+        return None
+        
+    # 2. Procesar datos para Plotly
+    data = []
+    for _, row in df.iterrows():
+        try:
+            start = datetime.strptime(row['horario'], "%Y-%m-%d %H:%M")
+            # Asumimos duración visual de 1h 15m para el bloque
+            end = start + timedelta(hours=1, minutes=15)
+            
+            # Etiqueta compacta para móviles
+            p1_short = row['pareja1'].split(' ')[0] if row['pareja1'] else "?"
+            p2_short = row['pareja2'].split(' ')[0] if row['pareja2'] else "?"
+            label = f"{row['instancia'][:3]}. {p1_short} vs {p2_short}"
+            
+            data.append(dict(Cancha="Cancha Central", Inicio=start, Fin=end, Partido=label))
+        except:
+            continue
+            
+    if not data: return None
+    df_plot = pd.DataFrame(data)
+    
+    # 3. Crear Gráfico Timeline
+    fig = px.timeline(df_plot, x_start="Inicio", x_end="Fin", y="Cancha", text="Partido")
+    
+    # 4. Estilizado Dark Neon
+    fig.update_layout(
+        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color="white",
+        showlegend=False, height=160, margin=dict(l=10, r=10, t=30, b=10),
+        xaxis=dict(showgrid=True, gridcolor='#333', tickformat="%H:%M", side="top", title=None),
+        yaxis=dict(visible=False, title=None)
+    )
+    fig.update_traces(marker_color='rgba(30, 30, 30, 0.8)', marker_line_color='#00FF41', marker_line_width=2, textposition="inside", insidetextanchor="middle", textfont=dict(size=12, color="white"))
+    return fig
+
+# Carga de Assets (URLs públicas de LottieFiles)
+lottie_player = load_lottieurl("https://assets9.lottiefiles.com/packages/lf20_vo0a1yca.json") # Jugador Tenis/Padel
+lottie_trophy = load_lottieurl("https://assets10.lottiefiles.com/packages/lf20_touohxv0.json") # Trofeo
+lottie_ball = load_lottieurl("https://lottie.host/8e2f644b-6101-447a-ba98-0c3f59518d6e/3rXo1O3vVv.json") # Jugador Padel Sidebar
+
 # Inicializar DB al arrancar
 init_db()
 
 # --- LOGO Y SIDEBAR ---
 if logo:
     st.sidebar.image(logo, use_container_width=True)
+
+# Animación Sidebar (Pelota sutil)
+if lottie_ball:
+    with st.sidebar:
+        st_lottie(lottie_ball, height=180, key="sidebar_anim")
 
 # --- LOGIN / REGISTRO RÁPIDO (TOP SIDEBAR) ---
 if 'usuario_logueado' not in st.session_state:
@@ -958,10 +1000,10 @@ if 'datos_usuario' not in st.session_state:
     st.session_state['datos_usuario'] = None
 
 if not st.session_state['usuario_logueado']:
-    with st.sidebar.form("login_form"):
+    with st.sidebar.form("login_form_sidebar"):
         st.write("### 🔐 Ingresar")
-        l_dni = st.text_input("DNI (Usuario)")
-        l_pass = st.text_input("Contraseña", type="password")
+        l_dni = st.text_input("DNI (Usuario)", placeholder="DNI (Usuario)", label_visibility="collapsed")
+        l_pass = st.text_input("Contraseña", placeholder="Contraseña", type="password", label_visibility="collapsed")
         submit_btn = st.form_submit_button("Entrar")
 
         if submit_btn:
@@ -988,8 +1030,8 @@ else:
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔐 Acceso Admin")
 with st.sidebar.form("login_admin"):
-    admin_user = st.text_input("Usuario")
-    admin_pass = st.text_input("Contraseña", type="password")
+    admin_user = st.text_input("Usuario", placeholder="Usuario", label_visibility="collapsed")
+    admin_pass = st.text_input("Contraseña", placeholder="Contraseña", type="password", label_visibility="collapsed")
     if st.form_submit_button("Ingresar"):
         if admin_user == st.secrets.get("USUARIO_ADMIN") and admin_pass == st.secrets.get("PASS_ADMIN"):
             st.session_state.es_admin = True
@@ -1056,8 +1098,22 @@ if st.secrets.get("MODO_MANTENIMIENTO", False) and not st.session_state.get('es_
 # --- CONTACTO Y REDES ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("Contacto y Redes")
-st.sidebar.link_button("📲 Consultas por WhatsApp", "https://wa.me/543455454907", type="primary", use_container_width=True)
-st.sidebar.link_button("📸 Seguinos en Instagram", "https://www.instagram.com/rinconpadel.vg/", type="primary", use_container_width=True)
+st.sidebar.markdown("""
+    <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 10px;">
+        <a href="https://wa.me/543455454907" target="_blank" style="text-decoration: none; color: inherit;">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 10px; background-color: #1E1E1E; border: 1px solid #333; border-radius: 8px; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" width="24" height="24">
+                <span style="font-weight: 500; font-size: 0.95rem; color: #E0E0E0;">Consultas por WhatsApp</span>
+            </div>
+        </a>
+        <a href="https://www.instagram.com/rinconpadel.vg/" target="_blank" style="text-decoration: none; color: inherit;">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 10px; background-color: #1E1E1E; border: 1px solid #333; border-radius: 8px; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg" width="24" height="24">
+                <span style="font-weight: 500; font-size: 0.95rem; color: #E0E0E0;">Seguinos en Instagram</span>
+            </div>
+        </a>
+    </div>
+""", unsafe_allow_html=True)
 
 # --- NAVEGACIÓN PRINCIPAL ---
 menu = ["📊 Torneos y Eventos", "👥 Jugadores", "📈 Ranking", "🏠 Mi Panel", "⚙️ Admin"]
@@ -1482,9 +1538,12 @@ elif choice == "👥 Jugadores":
             tab1, tab2 = st.tabs(["Iniciar Sesión", "Registrarse"])
             
             with tab1:
-                with st.form("login_form"):
-                    l_dni = st.text_input("DNI")
-                    l_pass = st.text_input("Contraseña", type="password")
+                # Animación Login (Jugador)
+                if lottie_player:
+                    st_lottie(lottie_player, height=200, key="login_anim_main")
+                with st.form("login_form_main"):
+                    l_dni = st.text_input("DNI", placeholder="DNI", label_visibility="collapsed")
+                    l_pass = st.text_input("Contraseña", placeholder="Contraseña", type="password", label_visibility="collapsed")
                     if st.form_submit_button("Ingresar"):
                         user = autenticar_usuario(l_dni, l_pass)
                         if user:
@@ -2258,7 +2317,13 @@ elif choice == "⚙️ Admin":
             if 'uploader_key' not in st.session_state: st.session_state.uploader_key = 0
 
             n_torneo = st.text_input("Nombre del Torneo", placeholder="Ej: Suma 13 - Apertura", key="admin_t_nombre")
-            f_evento = st.date_input("Fecha del Evento")
+            f_evento = st.date_input("Fecha del Evento", min_value=datetime.today())
+            
+            # Selector de rango horario
+            c_hora1, c_hora2 = st.columns(2)
+            h_inicio = c_hora1.time_input("Hora de Inicio", value=datetime.strptime("09:00", "%H:%M").time())
+            h_fin = c_hora2.time_input("Hora de Fin", value=datetime.strptime("23:00", "%H:%M").time())
+            # RECORDATORIO: El complejo tiene una sola cancha, por lo que la lógica futura de partidos deberá respetar ese bloque horario estricto
             
             cats = ["Libre", "3ra", "4ta", "5ta", "6ta", "7ma", "8va", "Suma 12", "Suma 13", "Otra (Escribir nueva...)"]
             c_torneo_sel = st.selectbox("Categoría", cats)
@@ -2366,8 +2431,25 @@ elif choice == "⚙️ Admin":
                     success, msg = generar_zonas(sel_t_id, t_data['categoria'])
                     if success:
                         st.success("✅ Zonas sorteadas y publicadas automáticamente")
+                        # Animación Celebración
+                        if lottie_trophy:
+                            st_lottie(lottie_trophy, height=200, key="success_anim_zonas")
+                            time.sleep(2.5) # Pausa para ver la animación antes de recargar
+                        st.rerun()
                     else:
                         st.error(msg)
+                
+                # Visualización de Zonas Generadas
+                df_zonas_admin = cargar_datos("SELECT * FROM zonas WHERE torneo_id = :torneo_id ORDER BY nombre_zona", params={"torneo_id": sel_t_id})
+                if not df_zonas_admin.empty:
+                    st.markdown("##### 📋 Vista Previa de Zonas")
+                    grupos = df_zonas_admin.groupby('nombre_zona')
+                    cols_z = st.columns(3)
+                    for i, (nombre, grupo) in enumerate(grupos):
+                        with cols_z[i % 3]:
+                            st.info(f"**{nombre}**")
+                            for _, row in grupo.iterrows():
+                                st.caption(f"• {row['pareja']}")
                 
                 st.markdown("---")
                 st.subheader("📅 Generador de Fixture Automático")
@@ -2423,6 +2505,14 @@ elif choice == "⚙️ Admin":
                 
                 st.markdown("---")
                 st.subheader("🛠️ Edición Manual de Horarios")
+                
+                # --- VISUALIZACIÓN TIMELINE ---
+                st.markdown("##### 📊 Cronograma Visual")
+                fig_timeline = generar_grafico_timeline(sel_t_id)
+                if fig_timeline:
+                    st.plotly_chart(fig_timeline, use_container_width=True, config={'displayModeBar': False})
+                else:
+                    st.caption("Asigna horarios a los partidos para ver el cronograma aquí.")
                 
                 # Obtener partidos del torneo seleccionado (Sin caché para ver cambios recientes)
                 matches_edit = cargar_datos("SELECT id, pareja1, pareja2, instancia, horario FROM partidos WHERE torneo_id = :torneo_id", params={"torneo_id": sel_t_id})
