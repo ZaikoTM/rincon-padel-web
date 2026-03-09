@@ -529,15 +529,15 @@ def hash_password(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 def guardar_inscripcion(torneo_id, j1, j2, loc, cat, pago, tel1, tel2):
-    run_action("INSERT INTO inscripciones (torneo_id, jugador1, jugador2, localidad, categoria, pago_confirmado, telefono1, telefono2) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", 
-              (torneo_id, j1, j2, loc, cat, 1 if pago else 0, tel1, tel2))
+    run_action("INSERT INTO inscripciones (torneo_id, jugador1, jugador2, localidad, categoria, pago_confirmado, telefono1, telefono2) VALUES (:torneo_id, :jugador1, :jugador2, :localidad, :categoria, :pago_confirmado, :telefono1, :telefono2)", 
+              {"torneo_id": torneo_id, "jugador1": j1, "jugador2": j2, "localidad": loc, "categoria": cat, "pago_confirmado": 1 if pago else 0, "telefono1": tel1, "telefono2": tel2})
     limpiar_cache()
 
 def crear_torneo(nombre, fecha, categoria, es_puntuable=True):
     if not st.session_state.get('es_admin', False): return None
     # Usamos RETURNING id para obtener el ID generado en Postgres
-    new_id = run_action("INSERT INTO torneos (nombre, fecha, categoria, estado, es_puntuable) VALUES (%s, %s, %s, 'Abierto', %s) RETURNING id", 
-              (nombre, str(fecha), categoria, 1 if es_puntuable else 0), return_id=True)
+    new_id = run_action("INSERT INTO torneos (nombre, fecha, categoria, estado, es_puntuable) VALUES (:nombre, :fecha, :categoria, 'Abierto', :es_puntuable) RETURNING id", 
+              {"nombre": nombre, "fecha": str(fecha), "categoria": categoria, "es_puntuable": 1 if es_puntuable else 0}, return_id=True)
     limpiar_cache()
     return new_id
 
@@ -609,12 +609,12 @@ def generar_fixture_automatico(torneo_id, programacion_dias):
 
     # 4. Asignar horarios a los partidos
     # Limpiar horarios previos para este torneo y zona, para evitar conflictos si se regenera
-    run_action("UPDATE partidos SET horario = NULL, cancha = NULL WHERE torneo_id = %s AND instancia = 'Zona'", (torneo_id,))
+    run_action("UPDATE partidos SET horario = NULL, cancha = NULL WHERE torneo_id = :torneo_id AND instancia = 'Zona'", {"torneo_id": torneo_id})
 
     for idx, partido_id in enumerate(partidos_a_programar):
         horario_asignado = slots_disponibles[idx]
         horario_str = horario_asignado.strftime("%Y-%m-%d %H:%M")
-        run_action("UPDATE partidos SET horario = %s, cancha = 'Cancha Central', estado_partido = 'Próximo' WHERE id = %s", (horario_str, int(partido_id)))
+        run_action("UPDATE partidos SET horario = :horario, cancha = 'Cancha Central', estado_partido = 'Próximo' WHERE id = :id", {"horario": horario_str, "id": int(partido_id)})
     
     limpiar_cache()
     return True, f"✅ Se programaron exitosamente {num_partidos} partidos en la Cancha Central."
@@ -651,9 +651,9 @@ def generar_zonas(torneo_id, categoria):
         return False, f"No se puede distribuir {n} parejas en grupos de 3 y 4 exactos."
 
     # 3. Guardar en DB
-    run_action("DELETE FROM zonas WHERE torneo_id = %s", (torneo_id,)) # Limpiar zonas previas del torneo
-    run_action("DELETE FROM zonas_posiciones WHERE torneo_id = %s", (torneo_id,)) # Limpiar tabla de posiciones
-    run_action("DELETE FROM partidos WHERE torneo_id = %s AND instancia = 'Zona'", (torneo_id,)) # Limpiar fixture de zona previo
+    run_action("DELETE FROM zonas WHERE torneo_id = :torneo_id", {"torneo_id": torneo_id}) # Limpiar zonas previas del torneo
+    run_action("DELETE FROM zonas_posiciones WHERE torneo_id = :torneo_id", {"torneo_id": torneo_id}) # Limpiar tabla de posiciones
+    run_action("DELETE FROM partidos WHERE torneo_id = :torneo_id AND instancia = 'Zona'", {"torneo_id": torneo_id}) # Limpiar fixture de zona previo
     
     idx = 0
     letras = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -664,16 +664,16 @@ def generar_zonas(torneo_id, categoria):
         nombre_z = f"Zona {letras[zona_counter]}"
         grupo = parejas[idx:idx+4]
         for p in grupo:
-            run_action("INSERT INTO zonas (torneo_id, nombre_zona, pareja) VALUES (%s, %s, %s)", (torneo_id, nombre_z, p))
+            run_action("INSERT INTO zonas (torneo_id, nombre_zona, pareja) VALUES (:torneo_id, :nombre_zona, :pareja)", {"torneo_id": torneo_id, "nombre_zona": nombre_z, "pareja": p})
             # Inicializar tabla de posiciones
-            run_action("INSERT INTO zonas_posiciones (torneo_id, nombre_zona, pareja) VALUES (%s, %s, %s)", (torneo_id, nombre_z, p))
+            run_action("INSERT INTO zonas_posiciones (torneo_id, nombre_zona, pareja) VALUES (:torneo_id, :nombre_zona, :pareja)", {"torneo_id": torneo_id, "nombre_zona": nombre_z, "pareja": p})
         
         # Generar Partidos (Todos contra todos)
         # 0 vs 1, 2 vs 3, 0 vs 2, 1 vs 3, 0 vs 3, 1 vs 2
         cruces = [(0,1), (2,3), (0,2), (1,3), (0,3), (1,2)]
         for i1, i2 in cruces:
-            run_action("INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido) VALUES (%s, %s, %s, 'Zona', 'Próximo')", 
-                      (torneo_id, grupo[i1], grupo[i2]))
+            run_action("INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido) VALUES (:torneo_id, :pareja1, :pareja2, 'Zona', 'Próximo')", 
+                      {"torneo_id": torneo_id, "pareja1": grupo[i1], "pareja2": grupo[i2]})
 
         idx += 4
         zona_counter += 1
@@ -683,16 +683,16 @@ def generar_zonas(torneo_id, categoria):
         nombre_z = f"Zona {letras[zona_counter]}"
         grupo = parejas[idx:idx+3]
         for p in grupo:
-            run_action("INSERT INTO zonas (torneo_id, nombre_zona, pareja) VALUES (%s, %s, %s)", (torneo_id, nombre_z, p))
+            run_action("INSERT INTO zonas (torneo_id, nombre_zona, pareja) VALUES (:torneo_id, :nombre_zona, :pareja)", {"torneo_id": torneo_id, "nombre_zona": nombre_z, "pareja": p})
             # Inicializar tabla de posiciones
-            run_action("INSERT INTO zonas_posiciones (torneo_id, nombre_zona, pareja) VALUES (%s, %s, %s)", (torneo_id, nombre_z, p))
+            run_action("INSERT INTO zonas_posiciones (torneo_id, nombre_zona, pareja) VALUES (:torneo_id, :nombre_zona, :pareja)", {"torneo_id": torneo_id, "nombre_zona": nombre_z, "pareja": p})
         
         # Generar Partidos (Todos contra todos)
         # 0 vs 1, 0 vs 2, 1 vs 2
         cruces = [(0,1), (0,2), (1,2)]
         for i1, i2 in cruces:
-            run_action("INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido) VALUES (%s, %s, %s, 'Zona', 'Próximo')", 
-                      (torneo_id, grupo[i1], grupo[i2]))
+            run_action("INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido) VALUES (:torneo_id, :pareja1, :pareja2, 'Zona', 'Próximo')", 
+                      {"torneo_id": torneo_id, "pareja1": grupo[i1], "pareja2": grupo[i2]})
 
         idx += 3
         zona_counter += 1
@@ -704,7 +704,7 @@ def actualizar_tabla_posiciones(torneo_id):
     """Recalcula los puntos de la tabla de posiciones basándose en los partidos jugados."""
     
     # Resetear valores
-    run_action("UPDATE zonas_posiciones SET pts=0, pj=0, pg=0, pp=0, sf=0, sc=0, ds=0 WHERE torneo_id=%s", (torneo_id,))
+    run_action("UPDATE zonas_posiciones SET pts=0, pj=0, pg=0, pp=0, sf=0, sc=0, ds=0 WHERE torneo_id=:torneo_id", {"torneo_id": torneo_id})
     
     # Obtener partidos jugados
     df_partidos = cargar_datos("SELECT pareja1, pareja2, resultado, ganador FROM partidos WHERE torneo_id=:torneo_id AND instancia='Zona' AND resultado != ''", {"torneo_id": torneo_id})
@@ -717,15 +717,15 @@ def actualizar_tabla_posiciones(torneo_id):
         # Si hay ganador definido en la columna ganador (que deberíamos usar), sumamos PG.
         
         # Actualizar PJ
-        run_action("UPDATE zonas_posiciones SET pj = pj + 1 WHERE torneo_id=%s AND pareja=%s", (torneo_id, p1))
-        run_action("UPDATE zonas_posiciones SET pj = pj + 1 WHERE torneo_id=%s AND pareja=%s", (torneo_id, p2))
+        run_action("UPDATE zonas_posiciones SET pj = pj + 1 WHERE torneo_id=:torneo_id AND pareja=:pareja", {"torneo_id": torneo_id, "pareja": p1})
+        run_action("UPDATE zonas_posiciones SET pj = pj + 1 WHERE torneo_id=:torneo_id AND pareja=:pareja", {"torneo_id": torneo_id, "pareja": p2})
         
         # Intento básico de determinar ganador si no usamos la columna 'ganador'
         # Idealmente usar la columna 'ganador' de la tabla partidos
         if ganador:
             perdedor = p2 if ganador == p1 else p1
-            run_action("UPDATE zonas_posiciones SET pts = pts + 3, pg = pg + 1 WHERE torneo_id=%s AND pareja=%s", (torneo_id, ganador))
-            run_action("UPDATE zonas_posiciones SET pts = pts + 1, pp = pp + 1 WHERE torneo_id=%s AND pareja=%s", (torneo_id, perdedor))
+            run_action("UPDATE zonas_posiciones SET pts = pts + 3, pg = pg + 1 WHERE torneo_id=:torneo_id AND pareja=:pareja", {"torneo_id": torneo_id, "pareja": ganador})
+            run_action("UPDATE zonas_posiciones SET pts = pts + 1, pp = pp + 1 WHERE torneo_id=:torneo_id AND pareja=:pareja", {"torneo_id": torneo_id, "pareja": perdedor})
             
     limpiar_cache()
 
@@ -751,8 +751,8 @@ def generar_bracket_inicial(torneo_id):
     ]
     
     for pos, p1, p2, inst in cruces:
-        run_action("INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, bracket_pos, resultado) VALUES (%s, %s, %s, %s, %s, '')",
-                  (torneo_id, p1, p2, inst, pos))
+        run_action("INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, bracket_pos, resultado) VALUES (:torneo_id, :pareja1, :pareja2, :instancia, :bracket_pos, '')",
+                  {"torneo_id": torneo_id, "pareja1": p1, "pareja2": p2, "instancia": inst, "bracket_pos": pos})
     
     limpiar_cache()
     return True, "Cuadro generado correctamente."
@@ -761,7 +761,7 @@ def actualizar_bracket(partido_id, torneo_id, bracket_pos, resultado, ganador_no
     if not st.session_state.get('es_admin', False): return
     
     # 1. Guardar resultado actual y el GANADOR
-    run_action("UPDATE partidos SET resultado = %s, ganador = %s WHERE id = %s", (resultado, ganador_nombre, partido_id))
+    run_action("UPDATE partidos SET resultado = :resultado, ganador = :ganador WHERE id = :id", {"resultado": resultado, "ganador": ganador_nombre, "id": partido_id})
     
     # 2. Calcular siguiente partido
     next_pos = 0
@@ -780,26 +780,26 @@ def actualizar_bracket(partido_id, torneo_id, bracket_pos, resultado, ganador_no
     # 3. Avanzar ganador si no es la final
     if next_pos > 0:
         campo_destino = "pareja1" if slot == 1 else "pareja2"
-        run_action(f"UPDATE partidos SET {campo_destino} = %s WHERE torneo_id = %s AND bracket_pos = %s", 
-                  (ganador_nombre, torneo_id, next_pos))
+        run_action(f"UPDATE partidos SET {campo_destino} = :ganador_nombre WHERE torneo_id = :torneo_id AND bracket_pos = :bracket_pos", 
+                  {"ganador_nombre": ganador_nombre, "torneo_id": torneo_id, "bracket_pos": next_pos})
         
     limpiar_cache()
 
 def actualizar_estado_partido(partido_id, nuevo_estado):
     if not st.session_state.get('es_admin', False): return
-    run_action("UPDATE partidos SET estado_partido = %s WHERE id = %s", (nuevo_estado, partido_id))
+    run_action("UPDATE partidos SET estado_partido = :estado_partido WHERE id = :id", {"estado_partido": nuevo_estado, "id": partido_id})
     limpiar_cache()
 
 def actualizar_marcador(partido_id, resultado):
     if not st.session_state.get('es_admin', False): return
-    run_action("UPDATE partidos SET resultado = %s WHERE id = %s", (resultado, partido_id))
+    run_action("UPDATE partidos SET resultado = :resultado WHERE id = :id", {"resultado": resultado, "id": partido_id})
     limpiar_cache()
 
 def guardar_foto(nombre, imagen):
     if not st.session_state.get('es_admin', False): return
     # Postgres usa BYTEA para binarios, pasamos los bytes directamente
-    run_action("INSERT INTO fotos (nombre, imagen, fecha) VALUES (%s, %s, NOW())", 
-              (nombre, imagen))
+    run_action("INSERT INTO fotos (nombre, imagen, fecha) VALUES (:nombre, :imagen, NOW())", 
+              {"nombre": nombre, "imagen": imagen})
     limpiar_cache()
 
 def guardar_jugador(celular, password, nombre, apellido, localidad, cat_actual, cat_anterior, foto_blob):
@@ -807,7 +807,7 @@ def guardar_jugador(celular, password, nombre, apellido, localidad, cat_actual, 
     # Usamos ON CONFLICT para emular INSERT OR REPLACE de SQLite
     sql = """
     INSERT INTO jugadores (celular, password, nombre, apellido, localidad, categoria_actual, categoria_anterior, foto, estado_cuenta) 
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Pendiente')
+    VALUES (:celular, :password, :nombre, :apellido, :localidad, :categoria_actual, :categoria_anterior, :foto, 'Pendiente')
     ON CONFLICT (celular) DO UPDATE SET
     password = EXCLUDED.password,
     nombre = EXCLUDED.nombre,
@@ -817,7 +817,7 @@ def guardar_jugador(celular, password, nombre, apellido, localidad, cat_actual, 
     categoria_anterior = EXCLUDED.categoria_anterior,
     foto = EXCLUDED.foto;
     """
-    run_action(sql, (celular, hash_password(password), nombre, apellido, localidad, cat_actual, cat_anterior, foto_blob if foto_blob else None))
+    run_action(sql, {"celular": celular, "password": hash_password(password), "nombre": nombre, "apellido": apellido, "localidad": localidad, "categoria_actual": cat_actual, "categoria_anterior": cat_anterior, "foto": foto_blob if foto_blob else None})
     limpiar_cache()
 
 def recategorizar_jugador(player_id, nueva_categoria):
@@ -825,8 +825,8 @@ def recategorizar_jugador(player_id, nueva_categoria):
     df = cargar_datos("SELECT categoria_actual FROM jugadores WHERE id = :player_id", {"player_id": player_id})
     if not df.empty:
         cat_anterior = df.iloc[0]['categoria_actual']
-        run_action("UPDATE jugadores SET categoria_anterior = %s, categoria_actual = %s WHERE id = %s", 
-                  (cat_anterior, nueva_categoria, player_id))
+        run_action("UPDATE jugadores SET categoria_anterior = :categoria_anterior, categoria_actual = :categoria_actual WHERE id = :id", 
+                  {"categoria_anterior": cat_anterior, "categoria_actual": nueva_categoria, "id": player_id})
     limpiar_cache()
 
 def apply_watermark(image):
@@ -921,8 +921,8 @@ def registrar_jugador_db(dni, nombre, apellido, celular, categoria, localidad=""
         # Si no se provee password (registro manual admin), se usa el DNI como pass
         final_pass = password if password else dni
 
-        run_action("INSERT INTO jugadores (dni, celular, password, nombre, apellido, categoria_actual, localidad, estado_cuenta) VALUES (%s, %s, %s, %s, %s, %s, %s, 'Pendiente')",
-                  (dni, celular, hash_password(final_pass), nombre, apellido, categoria, localidad))
+        run_action("INSERT INTO jugadores (dni, celular, password, nombre, apellido, categoria_actual, localidad, estado_cuenta) VALUES (:dni, :celular, :password, :nombre, :apellido, :categoria_actual, :localidad, 'Pendiente')",
+                  {"dni": dni, "celular": celular, "password": hash_password(final_pass), "nombre": nombre, "apellido": apellido, "categoria_actual": categoria, "localidad": localidad})
         limpiar_cache()
         return True, "Registro exitoso."
     except Exception as e:
@@ -931,7 +931,7 @@ def registrar_jugador_db(dni, nombre, apellido, celular, categoria, localidad=""
 
 def eliminar_jugador(dni):
     if not st.session_state.get('es_admin', False): return
-    run_action("DELETE FROM jugadores WHERE dni = %s", (dni,))
+    run_action("DELETE FROM jugadores WHERE dni = :dni", {"dni": dni})
     limpiar_cache()
 
 def autenticar_usuario(dni, password):
@@ -1092,7 +1092,7 @@ if choice == "🏠 Mi Panel":
     
     # 1. Próximo Partido (Busca por apellido en partidos pendientes)
     search_term = u['apellido']
-    df_next = get_data("SELECT * FROM partidos WHERE (pareja1 LIKE %s OR pareja2 LIKE %s) AND estado_partido != 'Finalizado' AND estado_partido != 'Disponible'", params=(f"%{search_term}%", f"%{search_term}%"))
+    df_next = get_data("SELECT * FROM partidos WHERE (pareja1 LIKE :search_term OR pareja2 LIKE :search_term) AND estado_partido != 'Finalizado' AND estado_partido != 'Disponible'", params={"search_term": f"%{search_term}%"})
     
     st.markdown("<div class='dashboard-card'><div class='dash-title'>🕒 Próximo Partido</div>", unsafe_allow_html=True)
     if not df_next.empty:
@@ -1104,7 +1104,7 @@ if choice == "🏠 Mi Panel":
     
     # 2. Resumen Temporada & Ranking
     c1, c2 = st.columns(2)
-    df_played = get_data("SELECT * FROM partidos WHERE (pareja1 LIKE %s OR pareja2 LIKE %s) AND estado_partido = 'Finalizado'", params=(f"%{search_term}%", f"%{search_term}%"))
+    df_played = get_data("SELECT * FROM partidos WHERE (pareja1 LIKE :search_term OR pareja2 LIKE :search_term) AND estado_partido = 'Finalizado'", params={"search_term": f"%{search_term}%"})
     played = len(df_played)
     wins = sum(1 for _, r in df_played.iterrows() if r['ganador'] and search_term in r['ganador'])
     eff = (wins / played * 100) if played > 0 else 0
@@ -1474,7 +1474,7 @@ elif choice == "👥 Jugadores":
             with st.expander("⚙️ Configuración y Privacidad"):
                 st.caption("Gestiona tus datos y privacidad.")
                 if st.button("⚠️ Solicitar Eliminación de Cuenta (Derecho al Olvido)"):
-                    run_action("DELETE FROM jugadores WHERE id = %s", (u['id'],))
+                    run_action("DELETE FROM jugadores WHERE id = :id", {"id": u['id']})
                     del st.session_state['usuario']
                     st.success("Tu cuenta y datos han sido eliminados correctamente.")
                     st.rerun()
@@ -1689,12 +1689,10 @@ elif choice == "👥 Jugadores":
                 # 1. Historial Directo
                 # Buscamos partidos donde ambos nombres aparezcan en las parejas
                 # Nota: Esto busca por string, idealmente usar IDs en el futuro
-                df_h2h = get_data("""
-                    SELECT * FROM partidos 
-                    WHERE (pareja1 LIKE %s OR pareja2 LIKE %s) 
-                    AND (pareja1 LIKE %s OR pareja2 LIKE %s)
-                    AND ganador IS NOT NULL
-                """, params=(f"%{p1_sel}%", f"%{p1_sel}%", f"%{p2_sel}%", f"%{p2_sel}%"))
+                df_h2h = get_data(
+                    "SELECT * FROM partidos WHERE (pareja1 LIKE :p1 OR pareja2 LIKE :p1) AND (pareja1 LIKE :p2 OR pareja2 LIKE :p2) AND ganador IS NOT NULL", 
+                    params={"p1": f"%{p1_sel}%", "p2": f"%{p2_sel}%"}
+                )
                 
                 p1_wins_h2h = 0
                 p2_wins_h2h = 0
@@ -1708,10 +1706,10 @@ elif choice == "👥 Jugadores":
                 # 2. Estadísticas Individuales (Títulos y Efectividad Global)
                 def get_stats(player_name):
                     # Títulos (Ganador en instancia Final)
-                    titles = get_data("SELECT count(*) as c FROM partidos WHERE instancia = 'Final' AND ganador LIKE %s", params=(f"%{player_name}%",)).iloc[0]['c']
+                    titles = get_data("SELECT count(*) as c FROM partidos WHERE instancia = 'Final' AND ganador LIKE :player_name", params={"player_name": f"%{player_name}%"}).iloc[0]['c']
                     
                     # Efectividad (Partidos ganados / jugados)
-                    matches = get_data("SELECT * FROM partidos WHERE (pareja1 LIKE %s OR pareja2 LIKE %s) AND ganador IS NOT NULL", params=(f"%{player_name}%", f"%{player_name}%"))
+                    matches = get_data("SELECT * FROM partidos WHERE (pareja1 LIKE :player_name OR pareja2 LIKE :player_name) AND ganador IS NOT NULL", params={"player_name": f"%{player_name}%"})
                     total = len(matches)
                     wins = sum(1 for _, r in matches.iterrows() if r['ganador'] and player_name in r['ganador'])
                     eff = (wins / total * 100) if total > 0 else 0
@@ -1810,7 +1808,7 @@ elif choice == "🎾 Torneos":
                             st.error(msg)
                 
                 # Visualizar Zonas
-                df_zonas = get_data("SELECT * FROM zonas WHERE torneo_id = %s ORDER BY nombre_zona", params=(t_id,))
+                df_zonas = get_data("SELECT * FROM zonas WHERE torneo_id = :torneo_id ORDER BY nombre_zona", params={"torneo_id": t_id})
                 if not df_zonas.empty:
                     grupos = df_zonas.groupby('nombre_zona')
                     cols = st.columns(3)
@@ -1958,7 +1956,7 @@ elif choice == "🎾 Torneos":
         st.subheader("📋 Lista de Inscriptos")
         # Mostrar solo inscriptos del torneo seleccionado si hay uno, sino todos
         if not torneos_disp.empty:
-            df_inscriptos = get_data("SELECT * FROM inscripciones WHERE torneo_id = %s ORDER BY id DESC", params=(torneo_id,))
+            df_inscriptos = get_data("SELECT * FROM inscripciones WHERE torneo_id = :torneo_id ORDER BY id DESC", params={"torneo_id": torneo_id})
         else:
             df_inscriptos = pd.DataFrame()
         
@@ -2021,7 +2019,7 @@ elif choice == "🎾 Torneos":
             st.markdown("---")
             
             # Visualización del Bracket
-            df_partidos = get_data("SELECT * FROM partidos WHERE torneo_id = %s AND bracket_pos IS NOT NULL ORDER BY bracket_pos", params=(torneo_id,))
+            df_partidos = get_data("SELECT * FROM partidos WHERE torneo_id = :torneo_id AND bracket_pos IS NOT NULL ORDER BY bracket_pos", params={"torneo_id": torneo_id})
             
             if not df_partidos.empty:
                 # Estilos CSS para el Bracket
@@ -2284,7 +2282,7 @@ elif choice == "⚙️ Admin":
                         with open(file_path, "wb") as f:
                             f.write(afiche_nuevo.getbuffer())
                         
-                        run_action("INSERT INTO eventos (torneo_id, afiche) VALUES (%s, %s)", (new_id, file_path))
+                        run_action("INSERT INTO eventos (torneo_id, afiche) VALUES (:torneo_id, :afiche)", {"torneo_id": new_id, "afiche": file_path})
 
                     st.success("✅ Torneo creado y guardado exitosamente.")
                     # Limpiar inputs
@@ -2342,7 +2340,7 @@ elif choice == "⚙️ Admin":
                                 ini = new_date[0]
                                 fecha_str = f"{ini.strftime('%d/%m')} al {ini.strftime('%d/%m')}"
 
-                        run_action("UPDATE torneos SET nombre=%s, fecha=%s, categoria=%s, es_puntuable=%s WHERE id=%s", (new_name, fecha_str, new_cat, 1 if edit_es_puntuable else 0, sel_t_id))
+                        run_action("UPDATE torneos SET nombre=:nombre, fecha=:fecha, categoria=:categoria, es_puntuable=:es_puntuable WHERE id=:id", {"nombre": new_name, "fecha": fecha_str, "categoria": new_cat, "es_puntuable": 1 if edit_es_puntuable else 0, "id": sel_t_id})
                         
                         if afiche_file:
                             if not os.path.exists("assets"):
@@ -2353,9 +2351,9 @@ elif choice == "⚙️ Admin":
                             
                             df_ev = cargar_datos("SELECT id FROM eventos WHERE torneo_id=:torneo_id", {"torneo_id": sel_t_id})
                             if not df_ev.empty:
-                                run_action("UPDATE eventos SET afiche=%s WHERE torneo_id=%s", (file_path, sel_t_id))
+                                run_action("UPDATE eventos SET afiche=:afiche WHERE torneo_id=:torneo_id", {"afiche": file_path, "torneo_id": sel_t_id})
                             else:
-                                run_action("INSERT INTO eventos (torneo_id, afiche) VALUES (%s, %s)", (sel_t_id, file_path))
+                                run_action("INSERT INTO eventos (torneo_id, afiche) VALUES (:torneo_id, :afiche)", {"torneo_id": sel_t_id, "afiche": file_path})
                         
                         st.success("✅ Torneo actualizado correctamente.")
                         limpiar_cache()
@@ -2486,7 +2484,7 @@ elif choice == "⚙️ Admin":
                         else:
                             # Actualizar en DB
                             # Actualizamos horario, forzamos Cancha Central y estado Próximo si estaba sin definir
-                            run_action("UPDATE partidos SET horario = %s, cancha = 'Cancha Central', estado_partido = 'Próximo' WHERE id = %s", (new_start.strftime("%Y-%m-%d %H:%M"), sel_match_id))
+                            run_action("UPDATE partidos SET horario = :horario, cancha = 'Cancha Central', estado_partido = 'Próximo' WHERE id = :id", {"horario": new_start.strftime("%Y-%m-%d %H:%M"), "id": sel_match_id})
                             limpiar_cache()
                             st.success("✅ Horario actualizado. No olvides avisar a los jugadores por WhatsApp")
                             st.rerun()
@@ -2583,7 +2581,7 @@ elif choice == "⚙️ Admin":
                     st.info(f"Categoría del Torneo: **{cat_torneo_r}** (Los puntos se sumarán a esta categoría)")
                     
                     # 2. Seleccionar Pareja
-                    df_insc_r = get_data("SELECT * FROM inscripciones WHERE torneo_id = %s", params=(sel_t_id_r,))
+                    df_insc_r = get_data("SELECT * FROM inscripciones WHERE torneo_id = :torneo_id", params={"torneo_id": sel_t_id_r})
                     
                     if not df_insc_r.empty:
                         # Crear lista de parejas
@@ -2597,8 +2595,8 @@ elif choice == "⚙️ Admin":
                             j1, j2 = parejas_map[sel_pareja_r]
                             # Actualizar J1 y J2 (Borrar previos para este torneo y reinsertar)
                             for jug in [j1, j2]:
-                                run_action("DELETE FROM ranking_puntos WHERE torneo_id = %s AND jugador = %s", (sel_t_id_r, jug))
-                                run_action("INSERT INTO ranking_puntos (torneo_id, jugador, categoria, puntos) VALUES (%s, %s, %s, %s)", (sel_t_id_r, jug, cat_torneo_r, puntos_r))
+                                run_action("DELETE FROM ranking_puntos WHERE torneo_id = :torneo_id AND jugador = :jugador", {"torneo_id": sel_t_id_r, "jugador": jug})
+                                run_action("INSERT INTO ranking_puntos (torneo_id, jugador, categoria, puntos) VALUES (:torneo_id, :jugador, :categoria, :puntos)", {"torneo_id": sel_t_id_r, "jugador": jug, "categoria": cat_torneo_r, "puntos": puntos_r})
                             limpiar_cache()
                             st.success(f"✅ Se asignaron {puntos_r} puntos a {j1} y {j2} en la categoría {cat_torneo_r}.")
                     else:
@@ -2666,7 +2664,7 @@ elif choice == "⚙️ Admin":
                 id_t_live = t_opts_live[sel_t_live]
                 
                 # Obtener partidos pendientes o en juego
-                df_p_live = get_data("SELECT * FROM partidos WHERE torneo_id = %s AND estado_partido != 'Finalizado'", params=(id_t_live,))
+                df_p_live = get_data("SELECT * FROM partidos WHERE torneo_id = :torneo_id AND estado_partido != 'Finalizado'", params={"torneo_id": id_t_live})
                 
                 if not df_p_live.empty:
                     p_opts_live = {f"{row['instancia']}: {row['pareja1']} vs {row['pareja2']}": row['id'] for _, row in df_p_live.iterrows()}
@@ -2711,10 +2709,10 @@ elif choice == "⚙️ Admin":
                         if st.button("📡 TRANSMITIR ESTE PARTIDO (Tomar Control)"):
                             # Limpiamos tabla y ponemos el nuevo
                             run_action("DELETE FROM partido_en_vivo") 
-                            run_action("INSERT INTO partido_en_vivo (torneo, pareja1, pareja2, marcador) VALUES (%s, %s, %s, '0-0')", 
-                                      (sel_t_live, p1_name, p2_name))
+                            run_action("INSERT INTO partido_en_vivo (torneo, pareja1, pareja2, marcador) VALUES (:torneo, :pareja1, :pareja2, '0-0')", 
+                                      {"torneo": sel_t_live, "pareja1": p1_name, "pareja2": p2_name})
                             # Actualizamos estado en partidos
-                            run_action("UPDATE partidos SET estado_partido = 'En Juego' WHERE id = %s", (id_p_live,))
+                            run_action("UPDATE partidos SET estado_partido = 'En Juego' WHERE id = :id", {"id": id_p_live})
                             st.rerun()
                     else:
                         st.success("🔴 EN VIVO - Controlando Marcador")
@@ -2729,8 +2727,8 @@ elif choice == "⚙️ Admin":
                                     str_parts.append(f"{s[0]}-{s[1]}")
                             final_score = " ".join(str_parts)
                             
-                            run_action("UPDATE partido_en_vivo SET marcador = %s", (final_score,))
-                            run_action("UPDATE partidos SET resultado = %s WHERE id = %s", (final_score, id_p_live))
+                            run_action("UPDATE partido_en_vivo SET marcador = :marcador", {"marcador": final_score})
+                            run_action("UPDATE partidos SET resultado = :resultado WHERE id = :id", {"resultado": final_score, "id": id_p_live})
                         
                         # Renderizar Controles para 3 Sets
                         for i in range(3):
@@ -2779,8 +2777,8 @@ elif choice == "⚙️ Admin":
                             
                             # 2. Actualizar partido final
                             final_score_str = " ".join([f"{s[0]}-{s[1]}" for s in sets_data if (s[0]!=0 or s[1]!=0)])
-                            run_action("UPDATE partidos SET estado_partido = 'Finalizado', resultado = %s, ganador = %s WHERE id = %s", 
-                                      (final_score_str, ganador, id_p_live))
+                            run_action("UPDATE partidos SET estado_partido = 'Finalizado', resultado = :resultado, ganador = :ganador WHERE id = :id", 
+                                      {"resultado": final_score_str, "ganador": ganador, "id": id_p_live})
                             
                             # 3. Limpiar Banner
                             run_action("DELETE FROM partido_en_vivo")
@@ -2816,17 +2814,17 @@ elif choice == "📈 Ranking":
             ORDER BY total_puntos DESC 
             LIMIT 10
         """
-        params = ()
+        params = None
     else:
         query = """
             SELECT jugador, SUM(puntos) as total_puntos, COUNT(DISTINCT torneo_id) as torneos_jugados 
             FROM ranking_puntos 
-            WHERE categoria = %s 
+            WHERE categoria = :categoria 
             GROUP BY jugador 
             ORDER BY total_puntos DESC 
             LIMIT 10
         """
-        params = (cat_sel,)
+        params = {"categoria": cat_sel}
         
     df_ranking = get_data(query, params=params)
     
