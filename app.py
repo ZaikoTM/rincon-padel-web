@@ -15,6 +15,7 @@ from streamlit_lottie import st_lottie
 import plotly.express as px
 
 from sqlalchemy.exc import OperationalError
+import contextlib
 # Configuración de página con estética Rincón Padel
 try:
     logo = Image.open("assets/logo_rincon.png")
@@ -404,11 +405,17 @@ if 'es_admin' not in st.session_state:
 # --- CONFIGURACIÓN DE SEGURIDAD ---
 # La configuración de seguridad se maneja mediante st.secrets
 
+# --- UTILIDADES ---
+@contextlib.contextmanager
+def custom_spinner():
+    with st.spinner("Procesando... 🎾"):
+        yield
+
 # --- BASE DE DATOS ---
 def run_action(query, params=None, return_id=False):
     """Ejecuta una acción de modificación (INSERT, UPDATE, DELETE) en la DB."""
     try:
-        conn = st.connection('postgresql', type='sql')
+        conn = st.connection('postgresql', type='sql', connect_args={'connect_timeout': 30}, pool_pre_ping=True, pool_recycle=300)
         with conn.session as s:
             with s.connection().connection.cursor() as cur:
                 cur.execute(query, params)
@@ -558,14 +565,24 @@ def registrar_resultado(torneo_id, p1, p2, resultado, instancia):
 
 @st.cache_data(ttl=600)
 def get_data(query, params=None):
-    conn = st.connection('postgresql', type='sql')
-    # ttl=0 para evitar cacheo interno de st.connection y usar st.cache_data
-    return conn.query(query, params=params, ttl=0)
+    try:
+        conn = st.connection('postgresql', type='sql', connect_args={'connect_timeout': 30}, pool_pre_ping=True, pool_recycle=300)
+        # ttl=0 para evitar cacheo interno de st.connection y usar st.cache_data
+        return conn.query(query, params=params, ttl=0)
+    except Exception:
+        time.sleep(1)
+        conn = st.connection('postgresql', type='sql', connect_args={'connect_timeout': 30}, pool_pre_ping=True, pool_recycle=300)
+        return conn.query(query, params=params, ttl=0)
 
 def cargar_datos(query, params=None):
     """Función auxiliar para cargar datos directamente de la DB sin caché."""
-    conn = st.connection('postgresql', type='sql')
-    return conn.query(query, params=params, ttl=0)
+    try:
+        conn = st.connection('postgresql', type='sql', connect_args={'connect_timeout': 30}, pool_pre_ping=True, pool_recycle=300)
+        return conn.query(query, params=params, ttl=0)
+    except Exception:
+        time.sleep(1)
+        conn = st.connection('postgresql', type='sql', connect_args={'connect_timeout': 30}, pool_pre_ping=True, pool_recycle=300)
+        return conn.query(query, params=params, ttl=0)
 
 def obtener_torneos_activos():
     """Obtiene la lista de torneos activos (estado 'Abierto')."""
@@ -577,7 +594,7 @@ def obtener_partido_en_vivo():
 
 def buscar_jugador_por_dni(dni):
     """Busca jugadores por DNI (Celular) en la tabla 'jugadores'."""
-    return cargar_datos("SELECT * FROM jugadores WHERE celular = :dni", params={"dni": dni})
+    return cargar_datos("SELECT * FROM jugadores WHERE celular = %(dni)s", params={"dni": dni})
 
 def generar_fixture_automatico(torneo_id, programacion_dias):
     """Asigna horarios automáticamente a los partidos de zona dentro de rangos definidos."""
@@ -585,7 +602,7 @@ def generar_fixture_automatico(torneo_id, programacion_dias):
         return False, "Acceso denegado. Debes ser administrador."
 
     # 1. Obtener partidos de zona para programar
-    df_partidos = cargar_datos("SELECT id FROM partidos WHERE torneo_id = :torneo_id AND instancia = 'Zona' ORDER BY id ASC", {"torneo_id": torneo_id})
+    df_partidos = cargar_datos("SELECT id FROM partidos WHERE torneo_id = %(torneo_id)s AND instancia = 'Zona' ORDER BY id ASC", {"torneo_id": torneo_id})
     partidos_a_programar = df_partidos['id'].tolist()
     num_partidos = len(partidos_a_programar)
     
@@ -633,7 +650,7 @@ def generar_zonas(torneo_id, categoria):
     
     # 1. Obtener inscriptos confirmados de la categoría
     # Nota: Ahora filtramos por torneo_id
-    df_insc = cargar_datos("SELECT jugador1, jugador2 FROM inscripciones WHERE torneo_id = :torneo_id AND pago_confirmado = 1", params={"torneo_id": torneo_id})
+    df_insc = cargar_datos("SELECT jugador1, jugador2 FROM inscripciones WHERE torneo_id = %(torneo_id)s AND pago_confirmado = 1", params={"torneo_id": torneo_id})
     parejas = [f"{row['jugador1']} - {row['jugador2']}" for _, row in df_insc.iterrows()]
     
     if len(parejas) < 3:
@@ -717,7 +734,7 @@ def generar_partidos_desde_zonas_existentes(torneo_id):
     run_action("DELETE FROM partidos WHERE torneo_id = %(torneo_id)s AND instancia = 'Zona'", {"torneo_id": torneo_id})
     
     # Obtener zonas y parejas
-    df_zonas = cargar_datos("SELECT nombre_zona, pareja FROM zonas WHERE torneo_id = :torneo_id ORDER BY nombre_zona", params={"torneo_id": torneo_id})
+    df_zonas = cargar_datos("SELECT nombre_zona, pareja FROM zonas WHERE torneo_id = %(torneo_id)s ORDER BY nombre_zona", params={"torneo_id": torneo_id})
     
     if df_zonas.empty:
         return False, "No hay zonas definidas."
@@ -753,7 +770,7 @@ def actualizar_tabla_posiciones(torneo_id):
     run_action("UPDATE zonas_posiciones SET pts=0, pj=0, pg=0, pp=0, sf=0, sc=0, ds=0 WHERE torneo_id=%(torneo_id)s", {"torneo_id": torneo_id})
     
     # Obtener partidos jugados
-    df_partidos = cargar_datos("SELECT pareja1, pareja2, resultado, ganador FROM partidos WHERE torneo_id=:torneo_id AND instancia='Zona' AND resultado != ''", {"torneo_id": torneo_id})
+    df_partidos = cargar_datos("SELECT pareja1, pareja2, resultado, ganador FROM partidos WHERE torneo_id=%(torneo_id)s AND instancia='Zona' AND resultado != ''", {"torneo_id": torneo_id})
     
     for _, row in df_partidos.iterrows():
         p1, p2, res, ganador = row['pareja1'], row['pareja2'], row['resultado'], row['ganador']
@@ -779,7 +796,7 @@ def generar_bracket_inicial(torneo_id):
     if not st.session_state.get('es_admin', False): return False, "Acceso denegado"
     
     # Verificar si ya existe cuadro
-    df_check = cargar_datos("SELECT count(*) as c FROM partidos WHERE torneo_id = :torneo_id AND bracket_pos IS NOT NULL", {"torneo_id": torneo_id})
+    df_check = cargar_datos("SELECT count(*) as c FROM partidos WHERE torneo_id = %(torneo_id)s AND bracket_pos IS NOT NULL", {"torneo_id": torneo_id})
     if df_check.iloc[0]['c'] > 0:
         return False, "El cuadro ya existe para este torneo."
 
@@ -868,7 +885,7 @@ def guardar_jugador(celular, password, nombre, apellido, localidad, cat_actual, 
 
 def recategorizar_jugador(player_id, nueva_categoria):
     if not st.session_state.get('es_admin', False): return
-    df = cargar_datos("SELECT categoria_actual FROM jugadores WHERE id = :player_id", {"player_id": player_id})
+    df = cargar_datos("SELECT categoria_actual FROM jugadores WHERE id = %(player_id)s", {"player_id": player_id})
     if not df.empty:
         cat_anterior = df.iloc[0]['categoria_actual']
         run_action("UPDATE jugadores SET categoria_anterior = %(categoria_anterior)s, categoria_actual = %(categoria_actual)s WHERE id = %(id)s", 
@@ -960,7 +977,7 @@ def validar_nivel(cat_jugador, cat_torneo):
 def registrar_jugador_db(dni, nombre, apellido, celular, categoria, localidad="", password=None):
     try:
         # Validar DNI duplicado
-        df = cargar_datos("SELECT * FROM jugadores WHERE dni = :dni", {"dni": dni})
+        df = cargar_datos("SELECT * FROM jugadores WHERE dni = %(dni)s", {"dni": dni})
         if not df.empty:
             return False, "El DNI ya está registrado."
 
@@ -981,7 +998,7 @@ def eliminar_jugador(dni):
     limpiar_cache()
 
 def autenticar_usuario(dni, password):
-    df = cargar_datos("SELECT id, dni, nombre, apellido, localidad, categoria_actual, celular FROM jugadores WHERE dni = :dni AND password = :password", {"dni": dni, "password": hash_password(password)})
+    df = cargar_datos("SELECT id, dni, nombre, apellido, localidad, categoria_actual, celular FROM jugadores WHERE dni = %(dni)s AND password = %(password)s", {"dni": dni, "password": hash_password(password)})
     if not df.empty:
         user = df.iloc[0]
         return {
@@ -1086,7 +1103,7 @@ def load_lottieurl(url):
 # --- GRÁFICO TIMELINE (PLOTLY) ---
 def generar_grafico_timeline(torneo_id):
     # 1. Obtener datos de partidos con horario
-    df = cargar_datos("SELECT id, pareja1, pareja2, instancia, horario FROM partidos WHERE torneo_id = :torneo_id AND horario IS NOT NULL ORDER BY horario", params={"torneo_id": torneo_id})
+    df = cargar_datos("SELECT id, pareja1, pareja2, instancia, horario FROM partidos WHERE torneo_id = %(torneo_id)s AND horario IS NOT NULL ORDER BY horario", params={"torneo_id": torneo_id})
     
     if df.empty:
         return None
@@ -1296,7 +1313,7 @@ if choice == "🏠 Mi Panel":
     
     # 1. Próximo Partido (Busca por apellido en partidos pendientes)
     search_term = u['apellido']
-    df_next = get_data("SELECT * FROM partidos WHERE (pareja1 LIKE :search_term OR pareja2 LIKE :search_term) AND estado_partido != 'Finalizado' AND estado_partido != 'Disponible'", params={"search_term": f"%{search_term}%"})
+    df_next = get_data("SELECT * FROM partidos WHERE (pareja1 LIKE %(search_term)s OR pareja2 LIKE %(search_term)s) AND estado_partido != 'Finalizado' AND estado_partido != 'Disponible'", params={"search_term": f"%{search_term}%"})
     
     st.markdown("<div class='dashboard-card'><div class='dash-title'>🕒 Próximo Partido</div>", unsafe_allow_html=True)
     if not df_next.empty:
@@ -1308,7 +1325,7 @@ if choice == "🏠 Mi Panel":
     
     # 2. Resumen Temporada & Ranking
     c1, c2 = st.columns(2)
-    df_played = get_data("SELECT * FROM partidos WHERE (pareja1 LIKE :search_term OR pareja2 LIKE :search_term) AND estado_partido = 'Finalizado'", params={"search_term": f"%{search_term}%"})
+    df_played = get_data("SELECT * FROM partidos WHERE (pareja1 LIKE %(search_term)s OR pareja2 LIKE %(search_term)s) AND estado_partido = 'Finalizado'", params={"search_term": f"%{search_term}%"})
     played = len(df_played)
     wins = sum(1 for _, r in df_played.iterrows() if r['ganador'] and search_term in r['ganador'])
     eff = (wins / played * 100) if played > 0 else 0
@@ -1463,7 +1480,7 @@ elif choice == "📊 Torneos y Eventos":
                     st.markdown(f"<div class='zona-header'>INFORMACIÓN: {evento_sel} ({cat_sel})</div>", unsafe_allow_html=True)
                     
                     # Mostrar Afiche si existe
-                    df_afiche = cargar_datos("SELECT afiche FROM eventos WHERE torneo_id = :torneo_id", params={"torneo_id": torneo_id})
+                    df_afiche = cargar_datos("SELECT afiche FROM eventos WHERE torneo_id = %(torneo_id)s", params={"torneo_id": torneo_id})
                     if not df_afiche.empty and df_afiche.iloc[0]['afiche']:
                         ruta_afiche = df_afiche.iloc[0]['afiche']
                         if os.path.exists(ruta_afiche):
@@ -1472,10 +1489,10 @@ elif choice == "📊 Torneos y Eventos":
                                 st.image(ruta_afiche, width=400)
 
                     # Contar inscriptos
-                    cant_inscriptos = cargar_datos("SELECT count(*) as c FROM inscripciones WHERE torneo_id = :torneo_id", params={"torneo_id": torneo_id}).iloc[0]['c']
+                    cant_inscriptos = cargar_datos("SELECT count(*) as c FROM inscripciones WHERE torneo_id = %(torneo_id)s", params={"torneo_id": torneo_id}).iloc[0]['c']
                     
                     # Contar partidos jugados
-                    cant_partidos = cargar_datos("SELECT count(*) as c FROM partidos WHERE torneo_id = :torneo_id AND resultado != ''", params={"torneo_id": torneo_id}).iloc[0]['c']
+                    cant_partidos = cargar_datos("SELECT count(*) as c FROM partidos WHERE torneo_id = %(torneo_id)s AND resultado != ''", params={"torneo_id": torneo_id}).iloc[0]['c']
 
                     # Cálculo de Duración
                     fecha_texto = torneo_data['fecha']
@@ -1544,9 +1561,9 @@ elif choice == "📊 Torneos y Eventos":
                     st.markdown("<div class='zona-header'>LISTA DE INSCRIPTOS</div>", unsafe_allow_html=True)
                     
                     if st.session_state.get('es_admin', False):
-                        df_insc = cargar_datos("SELECT * FROM inscripciones WHERE torneo_id = :torneo_id ORDER BY id", params={"torneo_id": torneo_id})
+                        df_insc = cargar_datos("SELECT * FROM inscripciones WHERE torneo_id = %(torneo_id)s ORDER BY id", params={"torneo_id": torneo_id})
                     else:
-                        df_insc = cargar_datos("SELECT * FROM inscripciones WHERE torneo_id = :torneo_id AND estado_validacion = 'Validado' ORDER BY id", params={"torneo_id": torneo_id})
+                        df_insc = cargar_datos("SELECT * FROM inscripciones WHERE torneo_id = %(torneo_id)s AND estado_validacion = 'Validado' ORDER BY id", params={"torneo_id": torneo_id})
                     
                     if df_insc.empty:
                         st.info("Aún no hay parejas inscriptas en este torneo.")
@@ -1606,9 +1623,9 @@ elif choice == "📊 Torneos y Eventos":
                     st.markdown("<div class='zona-header'>FASE DE GRUPOS</div>", unsafe_allow_html=True)
                     
                     # Ahora leemos de zonas_posiciones que es persistente
-                    df_zonas = cargar_datos("SELECT * FROM zonas_posiciones WHERE torneo_id = :torneo_id ORDER BY nombre_zona, pts DESC, ds DESC", params={"torneo_id": torneo_id})
+                    df_zonas = cargar_datos("SELECT * FROM zonas_posiciones WHERE torneo_id = %(torneo_id)s ORDER BY nombre_zona, pts DESC, ds DESC", params={"torneo_id": torneo_id})
                     # También leemos los partidos de zona para mostrarlos en la tarjeta
-                    df_partidos_zona = cargar_datos("SELECT * FROM partidos WHERE torneo_id = :torneo_id AND instancia = 'Zona'", params={"torneo_id": torneo_id})
+                    df_partidos_zona = cargar_datos("SELECT * FROM partidos WHERE torneo_id = %(torneo_id)s AND instancia = 'Zona'", params={"torneo_id": torneo_id})
                     
                     if df_zonas.empty:
                         st.warning("Aún no se han sorteado las zonas para este torneo.")
@@ -1663,7 +1680,7 @@ elif choice == "📊 Torneos y Eventos":
                     st.markdown("<div class='zona-header'>PARTIDOS PROGRAMADOS</div>", unsafe_allow_html=True)
                     
                     # Filtramos partidos que NO son de llave (bracket_pos IS NULL) o que tienen instancia de Zona
-                    df_fix = cargar_datos("SELECT * FROM partidos WHERE torneo_id = :torneo_id AND instancia = 'Zona' ORDER BY horario", params={"torneo_id": torneo_id})
+                    df_fix = cargar_datos("SELECT * FROM partidos WHERE torneo_id = %(torneo_id)s AND instancia = 'Zona' ORDER BY horario", params={"torneo_id": torneo_id})
                     
                     if df_fix.empty:
                         st.info("No hay partidos de zona programados.")
@@ -1686,7 +1703,7 @@ elif choice == "📊 Torneos y Eventos":
                 with tab_llaves:
                     st.markdown("<div class='zona-header'>CUADRO FINAL</div>", unsafe_allow_html=True)
                     
-                    df_bracket = cargar_datos("SELECT * FROM partidos WHERE torneo_id = :torneo_id AND bracket_pos IS NOT NULL ORDER BY bracket_pos", params={"torneo_id": torneo_id})
+                    df_bracket = cargar_datos("SELECT * FROM partidos WHERE torneo_id = %(torneo_id)s AND bracket_pos IS NOT NULL ORDER BY bracket_pos", params={"torneo_id": torneo_id})
                     
                     if df_bracket.empty:
                         st.info("El cuadro de llaves aún no ha sido generado.")
@@ -1966,7 +1983,7 @@ elif choice == "👥 Jugadores":
                 # Buscamos partidos donde ambos nombres aparezcan en las parejas
                 # Nota: Esto busca por string, idealmente usar IDs en el futuro
                 df_h2h = get_data(
-                    "SELECT * FROM partidos WHERE (pareja1 LIKE :p1 OR pareja2 LIKE :p1) AND (pareja1 LIKE :p2 OR pareja2 LIKE :p2) AND ganador IS NOT NULL", 
+                    "SELECT * FROM partidos WHERE (pareja1 LIKE %(p1)s OR pareja2 LIKE %(p1)s) AND (pareja1 LIKE %(p2)s OR pareja2 LIKE %(p2)s) AND ganador IS NOT NULL", 
                     params={"p1": f"%{p1_sel}%", "p2": f"%{p2_sel}%"}
                 )
                 
@@ -1982,10 +1999,10 @@ elif choice == "👥 Jugadores":
                 # 2. Estadísticas Individuales (Títulos y Efectividad Global)
                 def get_stats(player_name):
                     # Títulos (Ganador en instancia Final)
-                    titles = get_data("SELECT count(*) as c FROM partidos WHERE instancia = 'Final' AND ganador LIKE :player_name", params={"player_name": f"%{player_name}%"}).iloc[0]['c']
+                    titles = get_data("SELECT count(*) as c FROM partidos WHERE instancia = 'Final' AND ganador LIKE %(player_name)s", params={"player_name": f"%{player_name}%"}).iloc[0]['c']
                     
                     # Efectividad (Partidos ganados / jugados)
-                    matches = get_data("SELECT * FROM partidos WHERE (pareja1 LIKE :player_name OR pareja2 LIKE :player_name) AND ganador IS NOT NULL", params={"player_name": f"%{player_name}%"})
+                    matches = get_data("SELECT * FROM partidos WHERE (pareja1 LIKE %(player_name)s OR pareja2 LIKE %(player_name)s) AND ganador IS NOT NULL", params={"player_name": f"%{player_name}%"})
                     total = len(matches)
                     wins = sum(1 for _, r in matches.iterrows() if r['ganador'] and player_name in r['ganador'])
                     eff = (wins / total * 100) if total > 0 else 0
@@ -2038,7 +2055,7 @@ elif choice == "🎾 Torneos":
             cols = st.columns(2)
             for _, row in df_torneos.iterrows():
                 # Calcular cupo (simulado o real si tuvieramos max_cupo)
-                inscritos = cargar_datos("SELECT count(*) as c FROM inscripciones WHERE torneo_id=:torneo_id", params={"torneo_id": row['id']}).iloc[0]['c']
+                inscritos = cargar_datos("SELECT count(*) as c FROM inscripciones WHERE torneo_id=%(torneo_id)s", params={"torneo_id": row['id']}).iloc[0]['c']
                 cupo_max = 16 # Ejemplo fijo
                 progreso = min(inscritos / cupo_max, 1.0)
                 
@@ -2084,7 +2101,7 @@ elif choice == "🎾 Torneos":
                             st.error(msg)
                 
                 # Visualizar Zonas
-                df_zonas = get_data("SELECT * FROM zonas WHERE torneo_id = :torneo_id ORDER BY nombre_zona", params={"torneo_id": t_id})
+                df_zonas = get_data("SELECT * FROM zonas WHERE torneo_id = %(torneo_id)s ORDER BY nombre_zona", params={"torneo_id": t_id})
                 if not df_zonas.empty:
                     grupos = df_zonas.groupby('nombre_zona')
                     cols = st.columns(3)
@@ -2118,64 +2135,68 @@ elif choice == "🎾 Torneos":
 
             # --- FORMULARIO SUMA 13 ---
             if cat_torneo == "Suma 13" or st.checkbox("Mostrar Inscripción Suma 13"):
-                st.markdown("---")
-                st.markdown("""
-                <style>
-                    div[data-testid="stForm"] {
-                        background-color: #121212;
-                        border: 2px solid #00C853;
-                        padding: 20px;
-                        border-radius: 15px;
-                        box-shadow: 0 0 15px rgba(0, 200, 83, 0.3);
-                    }
-                </style>
-                """, unsafe_allow_html=True)
-                
-                with st.form("form_suma_13"):
-                    st.markdown("<h3 style='color: #00C853; text-align: center;'>🎾 Inscripción Suma 13</h3>", unsafe_allow_html=True)
-                    st.write(f"Inscribiéndote como: **{u['nombre']} {u['apellido']}** (Categoría: {u['categoria']})")
-                    st.write("Ingrese el DNI (Celular) de tu compañero para validar la suma de categorías.")
+                if 'usuario' not in st.session_state:
+                    st.warning("⚠️ Debes iniciar sesión para inscribirte en esta categoría.")
+                else:
+                    u = st.session_state['usuario']
+                    st.markdown("---")
+                    st.markdown("""
+                    <style>
+                        div[data-testid="stForm"] {
+                            background-color: #121212;
+                            border: 2px solid #00C853;
+                            padding: 20px;
+                            border-radius: 15px;
+                            box-shadow: 0 0 15px rgba(0, 200, 83, 0.3);
+                        }
+                    </style>
+                    """, unsafe_allow_html=True)
+                    
+                    with st.form("form_suma_13"):
+                        st.markdown("<h3 style='color: #00C853; text-align: center;'>🎾 Inscripción Suma 13</h3>", unsafe_allow_html=True)
+                        st.write(f"Inscribiéndote como: **{u['nombre']} {u['apellido']}** (Categoría: {u['categoria']})")
+                        st.write("Ingrese el DNI (Celular) de tu compañero para validar la suma de categorías.")
 
-                    c1, c2 = st.columns(2)
-                    #dni1 = c1.text_input("DNI/Celular Jugador 1")
-                    dni2 = c2.text_input("DNI/Celular Jugador 2")
+                        c1, c2 = st.columns(2)
+                        #dni1 = c1.text_input("DNI/Celular Jugador 1")
+                        dni2 = c2.text_input("DNI/Celular Jugador 2")
 
-                    submitted = st.form_submit_button("Inscribirse")
+                        submitted = st.form_submit_button("Inscribirse")
 
-                    if submitted:
-                        if dni2:
-                            dni1 = u['dni'] # Usar el DNI del usuario logueado
-                            # 1. Buscar jugadores en DB
-                            p1 = buscar_jugador_por_dni(dni1)
-                            p2 = buscar_jugador_por_dni(dni2)
+                        if submitted:
+                            if dni2:
+                                dni1 = u['dni'] # Usar el DNI del usuario logueado
+                                # 1. Buscar jugadores en DB
+                                p1 = buscar_jugador_por_dni(dni1)
+                                p2 = buscar_jugador_por_dni(dni2)
 
-                            if not p1.empty and not p2.empty:
-                                cat1 = p1.iloc[0]['categoria_actual']
-                                nombre1 = f"{p1.iloc[0]['nombre']} {p1.iloc[0]['apellido']}"
-                                localidad = p1.iloc[0]['localidad']
+                                if not p1.empty and not p2.empty:
+                                    cat1 = p1.iloc[0]['categoria_actual']
+                                    nombre1 = f"{p1.iloc[0]['nombre']} {p1.iloc[0]['apellido']}"
+                                    localidad = p1.iloc[0]['localidad']
 
-                                cat2 = p2.iloc[0]['categoria_actual']
-                                
-                                # 2. Extraer nivel numérico
-                                def get_nivel(cat_str):
-                                    match = re.search(r'\d+', str(cat_str))
-                                    return int(match.group()) if match else 8 # Default a 8va si no encuentra número
-                                
-                                n1 = get_nivel(cat1)
-                                n2 = get_nivel(cat2)
-                                suma = n1 + n2
-                                
-                                nombre2 = f"{p2.iloc[0]['nombre']} {p2.iloc[0]['apellido']}"
-                                # 3. Validar Suma
-                                if suma <= 13:
-                                    guardar_inscripcion(torneo_id, nombre1, nombre2, localidad, "Suma 13", False, dni1, dni2)
-                                    st.success("¡Inscripción recibida! Tu lugar será confirmado por el administrador a la brevedad vía WhatsApp.")
+                                    cat2 = p2.iloc[0]['categoria_actual']
+                                    
+                                    # 2. Extraer nivel numérico
+                                    def get_nivel(cat_str):
+                                        match = re.search(r'\d+', str(cat_str))
+                                        return int(match.group()) if match else 8 # Default a 8va si no encuentra número
+                                    
+                                    n1 = get_nivel(cat1)
+                                    n2 = get_nivel(cat2)
+                                    suma = n1 + n2
+                                    
+                                    nombre2 = f"{p2.iloc[0]['nombre']} {p2.iloc[0]['apellido']}"
+                                    # 3. Validar Suma
+                                    if suma <= 13:
+                                        guardar_inscripcion(torneo_id, nombre1, nombre2, localidad, "Suma 13", False, dni1, dni2)
+                                        st.success("¡Inscripción recibida! Tu lugar será confirmado por el administrador a la brevedad vía WhatsApp.")
+                                    else:
+                                        st.markdown(f"<div style='color: #FF4B4B; font-weight: bold; font-size: 1.2rem; text-align: center; border: 1px solid #FF4B4B; padding: 10px; border-radius: 5px;'>❌ La suma de categorías ({suma}) excede el límite de 13</div>", unsafe_allow_html=True)
                                 else:
-                                    st.markdown(f"<div style='color: #FF4B4B; font-weight: bold; font-size: 1.2rem; text-align: center; border: 1px solid #FF4B4B; padding: 10px; border-radius: 5px;'>❌ La suma de categorías ({suma}) excede el límite de 13</div>", unsafe_allow_html=True)
+                                    st.error("Uno o ambos jugadores no fueron encontrados en la base de datos.")
                             else:
-                                st.error("Uno o ambos jugadores no fueron encontrados en la base de datos.")
-                        else:
-                            st.warning("Por favor ingrese el DNI/Celular de tu compañero.")
+                                st.warning("Por favor ingrese el DNI/Celular de tu compañero.")
             # --- MODO ADMINISTRADOR ---
             if st.session_state.es_admin:
                 st.subheader("Modo Admin: Inscripción Manual")
@@ -2240,9 +2261,9 @@ elif choice == "🎾 Torneos":
         # Mostrar solo inscriptos del torneo seleccionado si hay uno, sino todos
         if not torneos_disp.empty:
             if st.session_state.get('es_admin', False):
-                df_inscriptos = get_data("SELECT * FROM inscripciones WHERE torneo_id = :torneo_id ORDER BY id DESC", params={"torneo_id": torneo_id})
+                df_inscriptos = get_data("SELECT * FROM inscripciones WHERE torneo_id = %(torneo_id)s ORDER BY id DESC", params={"torneo_id": torneo_id})
             else:
-                df_inscriptos = get_data("SELECT * FROM inscripciones WHERE torneo_id = :torneo_id AND estado_validacion = 'Validado' ORDER BY id DESC", params={"torneo_id": torneo_id})
+                df_inscriptos = get_data("SELECT * FROM inscripciones WHERE torneo_id = %(torneo_id)s AND estado_validacion = 'Validado' ORDER BY id DESC", params={"torneo_id": torneo_id})
         else:
             df_inscriptos = pd.DataFrame()
         
@@ -2324,7 +2345,7 @@ elif choice == "🎾 Torneos":
             st.markdown("---")
             
             # Visualización del Bracket
-            df_partidos = get_data("SELECT * FROM partidos WHERE torneo_id = :torneo_id AND bracket_pos IS NOT NULL ORDER BY bracket_pos", params={"torneo_id": torneo_id})
+            df_partidos = get_data("SELECT * FROM partidos WHERE torneo_id = %(torneo_id)s AND bracket_pos IS NOT NULL ORDER BY bracket_pos", params={"torneo_id": torneo_id})
             
             if not df_partidos.empty:
                 # Estilos CSS para el Bracket
@@ -2680,7 +2701,7 @@ elif choice == "⚙️ Admin":
                             with open(file_path, "wb") as f:
                                 f.write(afiche_file.getbuffer())
                             
-                            df_ev = cargar_datos("SELECT id FROM eventos WHERE torneo_id=:torneo_id", {"torneo_id": sel_t_id})
+                            df_ev = cargar_datos("SELECT id FROM eventos WHERE torneo_id=%(torneo_id)s", {"torneo_id": sel_t_id})
                             if not df_ev.empty:
                                 run_action("UPDATE eventos SET afiche=%(afiche)s WHERE torneo_id=%(torneo_id)s", {"afiche": file_path, "torneo_id": sel_t_id})
                             else:
@@ -2748,10 +2769,10 @@ elif choice == "⚙️ Admin":
                         st.write("Opción B: Asignación Manual")
                         
                         # 1. Obtener Inscriptos Confirmados y Asignados
-                        df_insc_man = cargar_datos("SELECT jugador1, jugador2 FROM inscripciones WHERE torneo_id = :torneo_id AND pago_confirmado = 1", params={"torneo_id": sel_t_id})
+                        df_insc_man = cargar_datos("SELECT jugador1, jugador2 FROM inscripciones WHERE torneo_id = %(torneo_id)s AND pago_confirmado = 1", params={"torneo_id": sel_t_id})
                         parejas_total = [f"{row['jugador1']} - {row['jugador2']}" for _, row in df_insc_man.iterrows()]
                         
-                        df_asignados = cargar_datos("SELECT pareja FROM zonas WHERE torneo_id = :torneo_id", params={"torneo_id": sel_t_id})
+                        df_asignados = cargar_datos("SELECT pareja FROM zonas WHERE torneo_id = %(torneo_id)s", params={"torneo_id": sel_t_id})
                         asignados = df_asignados['pareja'].tolist() if not df_asignados.empty else []
                         
                         # 2. Filtrar Disponibles
@@ -2799,7 +2820,7 @@ elif choice == "⚙️ Admin":
                     st.info("El torneo ya está en juego. Las zonas no se pueden modificar.")
                 
                 # Visualización de Zonas Generadas
-                df_zonas_admin = cargar_datos("SELECT * FROM zonas WHERE torneo_id = :torneo_id ORDER BY nombre_zona", params={"torneo_id": sel_t_id})
+                df_zonas_admin = cargar_datos("SELECT * FROM zonas WHERE torneo_id = %(torneo_id)s ORDER BY nombre_zona", params={"torneo_id": sel_t_id})
                 if not df_zonas_admin.empty:
                     st.markdown("##### 📋 Vista Previa de Zonas")
                     grupos = df_zonas_admin.groupby('nombre_zona')
@@ -2886,7 +2907,7 @@ elif choice == "⚙️ Admin":
                     st.caption("Asigna horarios a los partidos para ver el cronograma aquí.")
                 
                 # Obtener partidos del torneo seleccionado (Sin caché para ver cambios recientes)
-                matches_edit = cargar_datos("SELECT id, pareja1, pareja2, instancia, horario FROM partidos WHERE torneo_id = :torneo_id", params={"torneo_id": sel_t_id})
+                matches_edit = cargar_datos("SELECT id, pareja1, pareja2, instancia, horario FROM partidos WHERE torneo_id = %(torneo_id)s", params={"torneo_id": sel_t_id})
                 
                 if not matches_edit.empty:
                     # Crear lista de opciones para el selectbox
@@ -2922,7 +2943,7 @@ elif choice == "⚙️ Admin":
                         
                         # Validación de superposición (Cancha Central única)
                         # Consultamos todos los partidos con horario asignado excepto el actual
-                        all_scheduled = cargar_datos("SELECT id, horario FROM partidos WHERE horario IS NOT NULL AND id != :match_id", params={"match_id": sel_match_id})
+                        all_scheduled = cargar_datos("SELECT id, horario FROM partidos WHERE horario IS NOT NULL AND id != %(match_id)s", params={"match_id": sel_match_id})
                         
                         overlap = False
                         conflict_info = ""
@@ -2996,7 +3017,7 @@ elif choice == "⚙️ Admin":
                             run_action("UPDATE inscripciones SET estado_validacion = 'Validado' WHERE id = %(id)s", {"id": row['id']})
                             
                             # Obtener nombre del torneo para el mensaje
-                            df_t = cargar_datos("SELECT nombre FROM torneos WHERE id = :tid", params={"tid": row['torneo_id']})
+                            df_t = cargar_datos("SELECT nombre FROM torneos WHERE id = %(tid)s", params={"tid": row['torneo_id']})
                             nombre_torneo = df_t.iloc[0]['nombre'] if not df_t.empty else "el torneo"
                             
                             msg_wa = f"¡Hola! Soy Augusto de Rincón Padel. Tu inscripción para el torneo {nombre_torneo} ha sido VALIDADA. Pareja: {row['jugador1']} - {row['jugador2']}. ¡Te esperamos! Cualquier duda, escribinos a este número (3455454907)."
@@ -3092,7 +3113,7 @@ elif choice == "⚙️ Admin":
                     st.info(f"Categoría del Torneo: **{cat_torneo_r}** (Los puntos se sumarán a esta categoría)")
                     
                     # 2. Seleccionar Pareja
-                    df_insc_r = get_data("SELECT * FROM inscripciones WHERE torneo_id = :torneo_id", params={"torneo_id": sel_t_id_r})
+                    df_insc_r = get_data("SELECT * FROM inscripciones WHERE torneo_id = %(torneo_id)s", params={"torneo_id": sel_t_id_r})
                     
                     if not df_insc_r.empty:
                         # Crear lista de parejas
@@ -3175,10 +3196,10 @@ elif choice == "⚙️ Admin":
                 id_t_live = t_opts_live[sel_t_live]
                 
                 # Obtener partidos pendientes o en juego
-                df_p_live = get_data("SELECT * FROM partidos WHERE torneo_id = :torneo_id AND estado_partido != 'Finalizado' ORDER BY id ASC", params={"torneo_id": id_t_live})
+                df_p_live = get_data("SELECT * FROM partidos WHERE torneo_id = %(torneo_id)s AND estado_partido != 'Finalizado' ORDER BY id ASC", params={"torneo_id": id_t_live})
                 
                 # Configuración del torneo para Tie-break
-                t_conf = get_data("SELECT super_tiebreak, puntos_tiebreak FROM torneos WHERE id=:id", {"id": id_t_live}).iloc[0]
+                t_conf = get_data("SELECT super_tiebreak, puntos_tiebreak FROM torneos WHERE id=%(id)s", {"id": id_t_live}).iloc[0]
                 is_stb = t_conf['super_tiebreak'] == 1
                 pts_stb = t_conf['puntos_tiebreak']
                 
@@ -3352,7 +3373,7 @@ elif choice == "📈 Ranking":
         query = """
             SELECT jugador, SUM(puntos) as total_puntos, COUNT(DISTINCT torneo_id) as torneos_jugados 
             FROM ranking_puntos 
-            WHERE categoria = :categoria 
+            WHERE categoria = %(categoria)s 
             GROUP BY jugador 
             ORDER BY total_puntos DESC 
             LIMIT 10
