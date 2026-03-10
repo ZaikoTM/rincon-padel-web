@@ -1492,27 +1492,6 @@ elif choice == "📊 Torneos y Eventos":
                     # Contar partidos jugados
                     cant_partidos = cargar_datos("SELECT count(*) as c FROM partidos WHERE torneo_id = :torneo_id AND resultado != ''", params={"torneo_id": torneo_id}).iloc[0]['c']
 
-                    # Cálculo de Duración
-                    fecha_texto = torneo_data['fecha']
-                    duracion_row = ""
-                    
-                    if " al " in str(fecha_texto):
-                        try:
-                            inicio_str, fin_str = fecha_texto.split(" al ")
-                            anio_actual = datetime.now().year
-                            f_ini = datetime.strptime(f"{inicio_str}/{anio_actual}", "%d/%m/%Y")
-                            f_fin = datetime.strptime(f"{fin_str}/{anio_actual}", "%d/%m/%Y")
-                            
-                            # Manejo de cambio de año (ej: Dic a Ene)
-                            if f_fin < f_ini:
-                                f_fin = f_fin.replace(year=anio_actual + 1)
-                                
-                            dias = (f_fin - f_ini).days + 1
-                            if dias > 1:
-                                duracion_row = f"<tr><td>⏳ Duración</td><td>{dias} Jornadas</td></tr>"
-                        except:
-                            pass
-
                     html_info_tabla = f"""
     <table style="width:100%">
         <tr>
@@ -1520,8 +1499,7 @@ elif choice == "📊 Torneos y Eventos":
             <th>Detalle</th>
         </tr>
         <tr><td>📍 Estado</td><td>{estado_torneo}</td></tr>
-        <tr><td>📅 Fechas</td><td>{fecha_texto}</td></tr>
-        {duracion_row}
+        <tr><td>📅 Fechas</td><td>{torneo_data['fecha']}</td></tr>
         <tr><td>🏷️ Categoría</td><td>{cat_sel}</td></tr>
         <tr><td>👥 Inscriptos</td><td>{cant_inscriptos} Parejas</td></tr>
         <tr><td>🎾 Partidos Jugados</td><td>{cant_partidos}</td></tr>
