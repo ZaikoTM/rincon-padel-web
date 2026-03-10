@@ -2571,8 +2571,8 @@ elif choice == "⚙️ Admin":
             st.markdown("<div class='admin-card'>", unsafe_allow_html=True)
             st.subheader("🏆 Configuración de Torneo Activo")
             
-            # Permitir gestionar torneos 'Abierto' y 'En Juego'
-            all_active_tournaments = get_data("SELECT * FROM torneos WHERE estado IN ('Abierto', 'En Juego')")
+            # Permitir gestionar torneos 'Abierto', 'En Juego' e 'Inactivo'
+            all_active_tournaments = get_data("SELECT * FROM torneos WHERE estado IN ('Abierto', 'En Juego', 'Inactivo') ORDER BY id DESC")
             
             if not all_active_tournaments.empty:
                 torneo_opts = {f"{row['nombre']} ({row['categoria']}) - {row['estado']}": row['id'] for _, row in all_active_tournaments.iterrows()}
@@ -2580,39 +2580,46 @@ elif choice == "⚙️ Admin":
                 sel_t_id = torneo_opts[sel_t_name]
                 t_data = all_active_tournaments[all_active_tournaments['id'] == sel_t_id].iloc[0]
                 
-                with st.form("edit_torneo_form"):
-                    c1, c2 = st.columns(2)
-                    new_name = c1.text_input("Nombre del Torneo", value=t_data['nombre'])
-                    
-                    # Configuración de fechas (Rango)
-                    val_fechas = []
-                    try:
-                        # Intentar parsear si es formato ISO (YYYY-MM-DD)
-                        d = datetime.strptime(t_data['fecha'], "%Y-%m-%d")
-                        val_fechas = [d, d]
-                    except:
-                        # Si falla (ej: texto "DD/MM al..."), usar hoy
-                        val_fechas = [datetime.now(), datetime.now()]
+                # --- FORMULARIO DE EDICIÓN ---
+                c1, c2 = st.columns(2)
+                new_name = c1.text_input("Nombre del Torneo", value=t_data['nombre'])
+                
+                # Configuración de fechas (Rango)
+                val_fechas = []
+                try:
+                    d = datetime.strptime(t_data['fecha'], "%Y-%m-%d")
+                    val_fechas = [d, d]
+                except:
+                    val_fechas = [datetime.now(), datetime.now()]
 
-                    new_date = c2.date_input("Fecha (Seleccionar Rango)", value=val_fechas)
-                    new_cat = st.selectbox("Categoría", ["Libre", "3ra", "4ta", "5ta", "6ta", "7ma", "8va", "Suma 12", "Suma 13"], index=["Libre", "3ra", "4ta", "5ta", "6ta", "7ma", "8va", "Suma 12", "Suma 13"].index(t_data['categoria']) if t_data['categoria'] in ["Libre", "3ra", "4ta", "5ta", "6ta", "7ma", "8va", "Suma 12", "Suma 13"] else 0)
-                    
-                    val_puntuable = True
-                    if 'es_puntuable' in t_data and t_data['es_puntuable'] == 0:
-                        val_puntuable = False
-                    edit_es_puntuable = st.checkbox("¿Asigna Puntos al Ranking?", value=val_puntuable, key="check_puntuable_edit")
-                    
-                    # Configuración Tie-break Edit
-                    val_stb = True if t_data.get('super_tiebreak', 0) == 1 else False
-                    edit_stb = st.checkbox("Habilitar Super Tie-break", value=val_stb, key="edit_stb")
-                    edit_pts_stb = st.number_input("Puntos STB", value=t_data.get('puntos_tiebreak', 10), key="edit_pts_stb") if edit_stb else 10
-                    
-                    st.markdown("---")
-                    st.write("📸 **Afiche Promocional**")
-                    afiche_file = st.file_uploader("Subir imagen (JPG/PNG)", type=['jpg', 'png', 'jpeg'])
-                    
-                    if st.form_submit_button("💾 Guardar Cambios"):
-                        # Formatear fecha
+                new_date = c2.date_input("Fecha (Seleccionar Rango)", value=val_fechas)
+                
+                cat_options = ["Libre", "3ra", "4ta", "5ta", "6ta", "7ma", "8va", "Suma 12", "Suma 13"]
+                curr_cat_idx = cat_options.index(t_data['categoria']) if t_data['categoria'] in cat_options else 0
+                new_cat = st.selectbox("Categoría", cat_options, index=curr_cat_idx)
+                
+                val_puntuable = True
+                if 'es_puntuable' in t_data and t_data['es_puntuable'] == 0:
+                    val_puntuable = False
+                edit_es_puntuable = st.checkbox("¿Asigna Puntos al Ranking?", value=val_puntuable, key="check_puntuable_edit")
+                
+                # Configuración Tie-break Edit
+                val_stb = True if t_data.get('super_tiebreak', 0) == 1 else False
+                edit_stb = st.checkbox("Habilitar Super Tie-break", value=val_stb, key="edit_stb")
+                edit_pts_stb = st.number_input("Puntos STB", value=t_data.get('puntos_tiebreak', 10), key="edit_pts_stb") if edit_stb else 10
+                
+                st.markdown("---")
+                st.write("📸 **Afiche Promocional**")
+                afiche_file = st.file_uploader("Subir imagen (JPG/PNG)", type=['jpg', 'png', 'jpeg'])
+                
+                st.markdown("---")
+                
+                # --- BOTONES DE GESTIÓN ---
+                c_save, c_state, c_del = st.columns(3)
+                
+                # 1. GUARDAR
+                with c_save:
+                    if st.button("💾 Guardar Cambios", type="primary", use_container_width=True):
                         fecha_str = t_data['fecha']
                         if isinstance(new_date, (list, tuple)):
                             if len(new_date) == 2:
@@ -2637,10 +2644,46 @@ elif choice == "⚙️ Admin":
                             else:
                                 run_action("INSERT INTO eventos (torneo_id, afiche) VALUES (%(torneo_id)s, %(afiche)s)", {"torneo_id": sel_t_id, "afiche": file_path})
                         
-                        st.success("✅ Torneo actualizado correctamente.")
+                        st.toast("✅ Cambios guardados correctamente", icon="💾")
                         limpiar_cache()
+                        time.sleep(1)
                         st.rerun()
-                
+
+                # 2. ACTIVAR / DESACTIVAR
+                with c_state:
+                    if t_data['estado'] == 'Inactivo':
+                        if st.button("▶️ Activar Torneo", use_container_width=True):
+                            run_action("UPDATE torneos SET estado = 'Abierto' WHERE id = %(id)s", {"id": sel_t_id})
+                            st.toast("✅ Torneo Activado", icon="👁️")
+                            limpiar_cache()
+                            time.sleep(1)
+                            st.rerun()
+                    else:
+                        if st.button("⏸️ Desactivar Torneo", use_container_width=True):
+                            run_action("UPDATE torneos SET estado = 'Inactivo' WHERE id = %(id)s", {"id": sel_t_id})
+                            st.toast("⏸️ Torneo Desactivado", icon="🙈")
+                            limpiar_cache()
+                            time.sleep(1)
+                            st.rerun()
+
+                # 3. ELIMINAR
+                with c_del:
+                    confirm_del = st.checkbox("Confirmar Borrado", key="chk_del_torneo")
+                    if st.button("🗑️ Eliminar Torneo", type="secondary", disabled=not confirm_del, use_container_width=True):
+                        run_action("DELETE FROM partidos WHERE torneo_id = %(id)s", {"id": sel_t_id})
+                        run_action("DELETE FROM inscripciones WHERE torneo_id = %(id)s", {"id": sel_t_id})
+                        run_action("DELETE FROM zonas WHERE torneo_id = %(id)s", {"id": sel_t_id})
+                        run_action("DELETE FROM zonas_posiciones WHERE torneo_id = %(id)s", {"id": sel_t_id})
+                        run_action("DELETE FROM eventos WHERE torneo_id = %(id)s", {"id": sel_t_id})
+                        run_action("DELETE FROM ranking_puntos WHERE torneo_id = %(id)s", {"id": sel_t_id})
+                        run_action("DELETE FROM partido_en_vivo WHERE torneo = %(nombre)s", {"nombre": t_data['nombre']})
+                        run_action("DELETE FROM torneos WHERE id = %(id)s", {"id": sel_t_id})
+                        
+                        st.toast("🗑️ Torneo eliminado correctamente.", icon="🗑️")
+                        limpiar_cache()
+                        time.sleep(1)
+                        st.rerun()
+
                 st.markdown("---")
                 
                 # --- FASE PREVIA: GESTIÓN DE ZONAS ---
