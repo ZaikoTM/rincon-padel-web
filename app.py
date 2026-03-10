@@ -990,46 +990,88 @@ def autenticar_usuario(dni, password):
         }
     return None
 
+@st.fragment
 def formulario_inscripcion_pareja(torneo_id, cat_torneo):
-    """Muestra y procesa el formulario de inscripción para una pareja."""
+    """Muestra y procesa el formulario de inscripción para una pareja (Optimizado por pasos)."""
     st.markdown("<div class='zona-header'>FORMULARIO DE INSCRIPCIÓN</div>", unsafe_allow_html=True)
     
-    with st.form("form_inscripcion_publica"):
-        st.info(f"Estás inscribiendo una pareja al torneo de categoría **{cat_torneo}**.")
-        
-        c1, c2 = st.columns(2)
-        
-        with c1:
-            st.subheader("Jugador 1")
-            nombre_j1 = st.text_input("Nombre Completo J1", key="nombre_j1")
-            dni_j1 = st.text_input("DNI J1", key="dni_j1", help="Sin puntos ni espacios")
-            tel_j1 = st.text_input("Teléfono J1", key="tel_j1", help="Con código de área, sin 0 ni 15")
-        
-        with c2:
-            st.subheader("Jugador 2")
-            nombre_j2 = st.text_input("Nombre Completo J2", key="nombre_j2")
-            dni_j2 = st.text_input("DNI J2", key="dni_j2", help="Sin puntos ni espacios")
-            tel_j2 = st.text_input("Teléfono J2", key="tel_j2", help="Con código de área, sin 0 ni 15")
+    # Inicializar estado del paso
+    if 'form_step' not in st.session_state:
+        st.session_state.form_step = 1
+
+    # Barra de progreso
+    progress = 50 if st.session_state.form_step == 1 else 100
+    st.progress(progress, text=f"Paso {st.session_state.form_step} de 2")
+
+    with st.container(border=True):
+        if st.session_state.form_step == 1:
+            st.subheader("👥 Paso 1: Jugadores")
+            st.info(f"Categoría: **{cat_torneo}**")
             
-        st.markdown("---")
-        localidad = st.text_input("Localidad de la Pareja", key="localidad_pareja")
-        
-        if st.form_submit_button("✅ Confirmar y Enviar Inscripción"):
-            # Validación
-            if not all([nombre_j1, dni_j1, tel_j1, nombre_j2, dni_j2, tel_j2, localidad]):
-                st.warning("⚠️ Todos los campos son obligatorios. Por favor, completa la información.")
-            elif dni_j1 == dni_j2:
-                st.error("❌ Los DNI de los jugadores no pueden ser iguales.")
-            else:
-                # Guardado en DB
-                guardar_inscripcion(torneo_id, nombre_j1, nombre_j2, localidad, cat_torneo, False, tel_j1, tel_j2)
-                st.success("¡Inscripción recibida! Tu lugar será confirmado por el administrador a la brevedad vía WhatsApp.")
-                st.balloons()
-                
-                if 'mostrar_formulario' in st.session_state:
-                    st.session_state['mostrar_formulario'] = False
-                time.sleep(2)
-                st.rerun()
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**Jugador 1**")
+                nombre_j1 = st.text_input("Nombre Completo", key="f_nombre_j1")
+                dni_j1 = st.text_input("DNI", key="f_dni_j1", help="Sin puntos")
+                tel_j1 = st.text_input("Teléfono", key="f_tel_j1")
+            
+            with c2:
+                st.markdown("**Jugador 2**")
+                nombre_j2 = st.text_input("Nombre Completo", key="f_nombre_j2")
+                dni_j2 = st.text_input("DNI", key="f_dni_j2", help="Sin puntos")
+                tel_j2 = st.text_input("Teléfono", key="f_tel_j2")
+
+            st.write("")
+            if st.button("Siguiente ➡️", type="primary", use_container_width=True):
+                if all([nombre_j1, dni_j1, tel_j1, nombre_j2, dni_j2, tel_j2]):
+                    if dni_j1 != dni_j2:
+                        st.session_state.form_step = 2
+                        st.rerun()
+                    else:
+                        st.error("❌ Los DNI no pueden ser iguales.")
+                else:
+                    st.warning("⚠️ Completa todos los campos.")
+
+        elif st.session_state.form_step == 2:
+            st.subheader("📍 Paso 2: Confirmación")
+            st.write(f"**Pareja:** {st.session_state.f_nombre_j1} & {st.session_state.f_nombre_j2}")
+            
+            localidad = st.text_input("Localidad de la Pareja", key="f_localidad")
+            
+            st.divider()
+            c_back, c_conf = st.columns([1, 2])
+            
+            with c_back:
+                if st.button("⬅️ Volver"):
+                    st.session_state.form_step = 1
+                    st.rerun()
+            
+            with c_conf:
+                if st.button("✅ Confirmar Inscripción", type="primary", use_container_width=True):
+                    if localidad:
+                        with custom_spinner():
+                            # Simular delay visual para la animación
+                            time.sleep(1)
+                            guardar_inscripcion(
+                                torneo_id, 
+                                st.session_state.f_nombre_j1, 
+                                st.session_state.f_nombre_j2, 
+                                localidad, 
+                                cat_torneo, 
+                                False, 
+                                st.session_state.f_tel_j1, 
+                                st.session_state.f_tel_j2
+                            )
+                        
+                        st.success("¡Inscripción Exitosa!")
+                        st.balloons()
+                        st.session_state.form_step = 1
+                        if 'mostrar_formulario' in st.session_state:
+                            st.session_state['mostrar_formulario'] = False
+                        time.sleep(1.5)
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ Ingresa la localidad.")
 
 # --- LOTTIE ANIMATIONS ---
 def load_lottieurl(url):
