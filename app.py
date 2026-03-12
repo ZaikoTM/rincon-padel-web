@@ -2334,23 +2334,22 @@ def show_torneos_eventos_content():
 
             # 3. CLASIFICACIÓN (ZONAS)
             with tab_clasificacion:
+                import textwrap
                 st.markdown("<div class='zona-header'>FASE DE GRUPOS</div>", unsafe_allow_html=True)
                 
-                # Consulta optimizada con ordenamiento completo (Puntos > Dif Sets > Dif Games > Partidos Ganados)
-                # Aseguramos que traiga DG (Diferencia de Games)
+                # Consulta optimizada
                 df_zonas = cargar_datos("SELECT * FROM zonas_posiciones WHERE torneo_id = :torneo_id ORDER BY nombre_zona, pts DESC, ds DESC, dg DESC, pg DESC", params={"torneo_id": torneo_id})
-                df_partidos_zona = cargar_datos("SELECT * FROM partidos WHERE torneo_id = :torneo_id AND instancia = 'Zona'", params={"torneo_id": torneo_id})
                 
                 if df_zonas is None or df_zonas.empty:
                     st.warning("Aún no se han sorteado las zonas para este torneo.")
                 else:
-                    # --- ESTILOS CSS ESPECÍFICOS TIPO PADELCALENDAR ---
+                    # --- ESTILOS CSS ---
                     st.markdown("""
                     <style>
                         .pc-zone-container {
                             background-color: #050505;
                             border: 1px solid #1A1A1A;
-                            border-top: 3px solid #39FF14; /* Borde superior neón tipo PadelCalendar */
+                            border-top: 3px solid #39FF14;
                             border-radius: 12px;
                             padding: 15px;
                             margin-bottom: 30px;
@@ -2366,61 +2365,32 @@ def show_torneos_eventos_content():
                             border-bottom: 1px solid #333;
                             padding-bottom: 5px;
                         }
-                        /* TABLA DE POSICIONES */
                         .pc-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; color: #EEE; }
                         .pc-table th { color: #AAA; font-weight: 600; text-align: center; padding: 6px 2px; border-bottom: 1px solid #333; font-size: 0.7rem; }
                         .pc-table td { text-align: center; padding: 8px 2px; border-bottom: 1px solid #111; }
                         .pc-table .col-left { text-align: left; width: 45%; padding-left: 5px; }
                         .pc-table .col-pts { color: #39FF14; font-weight: 900; font-size: 0.9rem; }
-                        .pc-row-qualified { background-color: rgba(57, 255, 20, 0.03); }
+                        .pc-row-qualified { background-color: rgba(57, 255, 20, 0.05) !important; }
                         .pc-couple-name { display: block; font-weight: 700; font-size: 0.85rem; color: #FFF; }
-                        .pc-badge-q { color: #39FF14; font-size: 0.7rem; margin-left: 4px; }
-                        
-                        /* TARJETAS DE PARTIDO */
-                        .pc-match-card {
-                            background-color: #0E0E0E;
-                            border: 1px solid #333;
-                            border-radius: 6px;
-                            padding: 10px;
-                            margin-top: 8px;
-                            display: flex;
-                            justify-content: space-between;
-                            align-items: center;
-                        }
-                        .pc-players { display: flex; flex-direction: column; gap: 5px; }
-                        .pc-player-row { display: flex; align-items: center; gap: 6px; color: #CCC; font-size: 0.8rem; font-weight: 500; }
-                        .pc-score-box { 
-                            background-color: #000;
-                            border: 1px solid #222;
-                            color: #FFF; 
-                            padding: 4px 8px; 
-                            border-radius: 6px; 
-                            font-family: 'Courier New', monospace; 
-                            font-weight: bold; 
-                            font-size: 0.9rem; 
-                            text-align: center;
-                        }
-                        .pc-score-finished { color: #39FF14; border-color: #39FF14; }
-                        .pc-info-badge { font-size: 0.65rem; color: #666; display:flex; flex-direction:column; align-items:end;}
                     </style>
                     """, unsafe_allow_html=True)
 
                     grupos = df_zonas.groupby('nombre_zona')
                     cols = st.columns(2)
-                    idx = 0
                     
-                    for nombre_zona, df_grupo in grupos:
-                        with cols[idx % 2]:
+                    for i, (nombre_zona, df_grupo) in enumerate(grupos):
+                        with cols[i % 2]:
                             # Contenedor Principal
                             st.markdown(f"<div class='pc-zone-container'><div class='pc-zone-title'>🏆 {nombre_zona}</div>", unsafe_allow_html=True)
 
                             table_rows = []
-                            for i, row in enumerate(df_grupo.itertuples()):
+                            for r_idx, row in enumerate(df_grupo.itertuples()):
                                 # Resaltar top 2 (Clasificados)
-                                row_class = "pc-row-qualified" if i < 2 else ""
-                                badge = "✅" if i < 2 else ""
+                                row_class = "pc-row-qualified" if r_idx < 2 else ""
+                                badge = "<span style='color:#39FF14; font-size:0.7rem;'>✅</span>" if r_idx < 2 else ""
                                 
-                                table_rows.append(f"""
+                                # Usamos textwrap.dedent para cada fila
+                                row_html = textwrap.dedent(f"""
                                     <tr class="{row_class}">
                                         <td class="col-left">
                                             <span class="pc-couple-name">{row.pareja} {badge}</span>
@@ -2433,24 +2403,28 @@ def show_torneos_eventos_content():
                                         <td>{row.dg}</td>
                                         <td class="col-pts">{row.pts}</td>
                                     </tr>
-                                """)
+                                """).strip()
+                                table_rows.append(row_html)
                             
-                            full_html_table = f"""
-<table class="pc-table">
-    <thead>
-        <tr>
-            <th class="col-left">PAREJA</th>
-            <th>PJ</th><th>PG</th><th>PP</th>
-            <th>SF</th><th>SC</th><th>DF</th>
-            <th>PTS</th>
-        </tr>
-    </thead>
-    <tbody>
-        {''.join(table_rows)}
-    </tbody>
-</table>
-"""
+                            # La tabla completa también con dedent para asegurar que Streamlit no vea espacios
+                            full_html_table = textwrap.dedent(f"""
+                                <table class="pc-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="col-left">PAREJA</th>
+                                            <th>PJ</th><th>PG</th><th>PP</th>
+                                            <th>SF</th><th>SC</th><th>DF</th>
+                                            <th>PTS</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {"".join(table_rows)}
+                                    </tbody>
+                                </table>
+                            """).strip()
+                            
                             st.markdown(full_html_table, unsafe_allow_html=True)
+                            st.markdown("</div>", unsafe_allow_html=True) # Cierra pc-zone-container
 
                             # 2. TARJETAS DE PARTIDOS
                             st.markdown("<div style='margin-top:15px; font-size:0.75rem; color:#666; font-weight:bold; letter-spacing:1px; border-bottom:1px solid #222; padding-bottom:5px;'>PARTIDOS</div>", unsafe_allow_html=True)
