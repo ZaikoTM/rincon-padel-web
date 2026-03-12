@@ -717,7 +717,7 @@ def generar_fixture_automatico(torneo_id, programacion_dias):
 import random
 import streamlit as st
 
-def generar_zonas(torneo_id, categoria):
+def generar_zonas(torneo_id, categoria, pref_tamano=4):
     # 1. Seguridad y Validación
     if not st.session_state.get('es_admin', False): 
         return False, "Acceso denegado"
@@ -745,8 +745,17 @@ def generar_zonas(torneo_id, categoria):
     random.shuffle(parejas)
     
     # 3. Lógica de grupos (Matemática de zonas)
+    # Si prefiere 4: Iteramos desde el máximo posible de grupos de 4 hacia abajo (Maximizar 4s)
+    # Si prefiere 3: Iteramos desde 0 grupos de 4 hacia arriba (Minimizar 4s -> Maximizar 3s)
     q4, q3, found = 0, 0, False
-    for i in range(n // 4, -1, -1):
+    
+    # Definir rango de iteración para grupos de 4
+    if pref_tamano == 4:
+        range_q4 = range(n // 4, -1, -1) # Descendente
+    else:
+        range_q4 = range(0, (n // 4) + 1) # Ascendente
+        
+    for i in range_q4:
         rem = n - (i * 4)
         if rem % 3 == 0:
             q4, q3, found = i, rem // 3, True
@@ -875,6 +884,7 @@ def cerrar_zonas_y_generar_playoffs(torneo_id):
     """
     Cierra la fase de zonas, selecciona los 2 mejores de cada una y genera el bracket de playoffs.
     Soporta 2 zonas (Semis), 4 zonas (Cuartos) y 8 zonas (Octavos).
+    AHORA: Soporta zonas impares y rellena con Mejores 3ros o BYE.
     """
     if not st.session_state.get('es_admin', False): return False, "Acceso denegado"
     
@@ -885,96 +895,168 @@ def cerrar_zonas_y_generar_playoffs(torneo_id):
     if df_check is not None and not df_check.empty and df_check.iloc[0]['c'] > 0:
         return False, "Ya se han generado cruces de playoff para este torneo."
 
-    # 2. Obtener clasificados (Top 2 por zona)
+    # 2. Obtener Tabla General Ordenada
     # Orden: Puntos > Dif Sets > Dif Games > Partidos Ganados
+    # Traemos TODO para poder buscar mejores terceros si hace falta
     df = cargar_datos("""
-        SELECT nombre_zona, pareja 
+        SELECT nombre_zona, pareja, pts, ds, dg, pg
         FROM zonas_posiciones 
         WHERE torneo_id = :t_id 
-        ORDER BY nombre_zona ASC, pts DESC, ds DESC, dg DESC, pg DESC
+        ORDER BY pts DESC, ds DESC, dg DESC, pg DESC
     """, {"t_id": t_id})
     
     if df is None or df.empty: return False, "No hay zonas registradas con datos."
     
+    # Organizar por zonas para sacar 1ros y 2dos
     zonas_dict = {}
     for _, row in df.iterrows():
         z = row['nombre_zona']
         if z not in zonas_dict: zonas_dict[z] = []
-        if len(zonas_dict[z]) < 2: # Solo tomamos los 2 primeros
-            zonas_dict[z].append(row['pareja'])
-            
-    # Validar que todas las zonas tengan 2 clasificados
-    nombres_zonas = sorted(zonas_dict.keys())
-    for z in nombres_zonas:
-        if len(zonas_dict[z]) < 2:
-            return False, f"La zona {z} no tiene suficientes parejas para clasificar (Mínimo 2)."
-            
-    num_zonas = len(nombres_zonas)
-    start_pos = 0
-    instancia = ""
+        zonas_dict[z].append(row) # Guardamos la fila entera para tener stats
+
+    clasificados = [] # Lista de tuplas (Pareja, PosiciónEnZona, StatsRow)
+    terceros = []     # Candidatos a entrar si falta gente
     
-    # 3. Determinar Instancia y Posición Inicial del Bracket
-    if num_zonas % 2 != 0:
-        return False, f"Número de zonas impar ({num_zonas}). El sistema automático requiere zonas pares (2, 4, 8)."
+    for z, equipos in zonas_dict.items():
+        # Ordenar equipos dentro de la zona (el SQL ya ordenó global, pero aseguramos por zona)
+        equipos_sorted = sorted(equipos, key=lambda x: (x['pts'], x['ds'], x['dg']), reverse=True)
         
-    if num_zonas == 8:
+        if len(equipos_sorted) >= 1: clasificados.append( (equipos_sorted[0]['pareja'], 1, equipos_sorted[0]) )
+        if len(equipos_sorted) >= 2: clasificados.append( (equipos_sorted[1]['pareja'], 2, equipos_sorted[1]) )
+        if len(equipos_sorted) >= 3: terceros.append( (equipos_sorted[2]['pareja'], 3, equipos_sorted[2]) )
+
+    num_clasificados_base = len(clasificados)
+    
+    # 3. Determinar Tamaño del Cuadro (Potencia de 2 superior más cercana)
+    # Opciones lógicas: 4 (Semis), 8 (Cuartos), 16 (Octavos), 32 (16avos)
+    target_size = 4
+    if num_clasificados_base > 4: target_size = 8
+    if num_clasificados_base > 8: target_size = 16
+    if num_clasificados_base > 16: target_size = 32
+    
+    # 4. Rellenar Cuadro (Si faltan para llegar a target_size)
+    slots_needed = target_size - num_clasificados_base
+    
+    # A) Rellenar con Mejores 3ros
+    # Ordenamos terceros globalmente (ya vienen medio ordenados del SQL, pero reaseguramos)
+    terceros.sort(key=lambda x: (x[2]['pts'], x[2]['ds'], x[2]['dg']), reverse=True)
+    
+    while slots_needed > 0 and len(terceros) > 0:
+        top_3ro = terceros.pop(0)
+        clasificados.append(top_3ro)
+        slots_needed -= 1
+        
+    # B) Rellenar con BYE (Si aun faltan)
+    byes_added = 0
+    while slots_needed > 0:
+        clasificados.append( ("BYE", 4, None) ) # Pos 4 ficticia para ordenamiento
+        slots_needed -= 1
+        byes_added += 1
+
+    # 5. Generar Cruces (Seeding System)
+    # Ordenamos a TODOS los clasificados para definir cabezas de serie vs peores
+    # Criterio: Posición en zona (1ro, 2do, 3ro, BYE) y luego Puntos/DS
+    # Nota: BYE siempre al final.
+    def sort_key(item):
+        pareja, pos_zona, stats = item
+        if pareja == "BYE": return (-1, -1, -1, -1) # Al final
+        # Queremos: Los 1ros van primero, luego 2dos, luego 3ros.
+        # Dentro de los 1ros, ordena por Puntos.
+        # Python sort es ascendente, así que invertimos lógica o usamos reverse=True
+        # Prioridad ordenamiento (Mayor a menor importancia):
+        # 1. Grupo (1ro > 2do > 3ro). Como 1 < 2, invertimos valor: (4 - pos_zona)
+        priority_group = 4 - pos_zona
+        return (priority_group, stats['pts'], stats['ds'], stats['dg'])
+
+    clasificados.sort(key=sort_key, reverse=True)
+    
+    # Algoritmo de cruces (Snake/Fold): El mejor (0) vs El peor (-1), El 2do vs el Penultimo...
+    cruces_finales = []
+    n = len(clasificados)
+    for i in range(n // 2):
+        p1 = clasificados[i][0]
+        p2 = clasificados[n - 1 - i][0]
+        cruces_finales.append((p1, p2))
+
+    # 6. Definir Instancia y Posición DB
+    instancia = "Cuartos"
+    start_pos = 9
+    if target_size == 16:
         instancia = "Octavos"
         start_pos = 1
-    elif num_zonas == 4:
-        instancia = "Cuartos"
-        start_pos = 9
-    elif num_zonas == 2:
+    elif target_size == 4:
         instancia = "Semis"
         start_pos = 13
-    else:
-        return False, f"Número de zonas ({num_zonas}) no soportado para bracket automático. Soportado: 2, 4, 8."
 
-    # 4. Generar Cruces (1ro vs 2do Cruzado)
-    cruces_raw = []
-    # Iteramos zonas de a pares (A-B, C-D, etc.)
-    for i in range(0, num_zonas, 2):
-        zA = nombres_zonas[i]
-        zB = nombres_zonas[i+1]
-        # Cruce 1: 1ro A vs 2do B
-        cruces_raw.append( (zonas_dict[zA][0], zonas_dict[zB][1]) )
-        # Cruce 2: 1ro B vs 2do A
-        cruces_raw.append( (zonas_dict[zB][0], zonas_dict[zA][1]) )
-
-    # 5. Ordenar Cruces para el Bracket
-    # El objetivo es que los cruces de un mismo par de zonas (A-B) NO se encuentren hasta la final de su llave.
-    # Intercalamos los cruces para que alimenten ramas opuestas del cuadro.
-    lista_ordenada = []
+    # 7. Insertar en Base de Datos
+    count = 0
+    # Mezclar cruces para que los mejores no se eliminen entre sí inmediatamente si es posible (simple swap para bracket visual)
+    # El orden en el bracket (1, 2, 3, 4) define cruces siguientes (1vs2 -> semi).
+    # La lista cruces_finales tiene: [Mejor vs Peor, 2do vs Penultimo, etc]
+    # Idealmente distribuirlos: [Cruce1, Cruce2...] -> Bracket pos start, start+1...
     
-    if num_zonas == 4: # Cuartos (9, 10, 11, 12)
-        # Raw: [1A-2B, 1B-2A, 1C-2D, 1D-2C] -> Indices 0, 1, 2, 3
-        # Queremos: (1A-2B) vs (1C-2D) en una Semi, y (1B-2A) vs (1D-2C) en la otra.
-        # Bracket flow: 9&10 -> 13, 11&12 -> 14.
-        lista_ordenada = [cruces_raw[0], cruces_raw[2], cruces_raw[1], cruces_raw[3]]
-        
-    elif num_zonas == 8: # Octavos (1..8)
-        # Raw tiene 8 cruces. Pares A/B(0,1), C/D(2,3), E/F(4,5), G/H(6,7)
-        # Bracket flow: (1,2)->9, (3,4)->10...
-        # Top Half: A/B vs C/D. Bottom Half: E/F vs G/H.
-        lista_ordenada = [
-            cruces_raw[0], cruces_raw[2], # 1A-2B vs 1C-2D
-            cruces_raw[1], cruces_raw[3], # 1B-2A vs 1D-2C
-            cruces_raw[4], cruces_raw[6], # 1E-2F vs 1G-2H
-            cruces_raw[5], cruces_raw[7]  # 1F-2E vs 1H-2G
+    # Reordenamiento básico para separar cuadros (Top Half / Bottom Half logic simple)
+    # Si hay 4 cruces (Cuartos): [1vs8, 2vs7, 3vs6, 4vs5].
+    # Bracket: (1vs8) va al pos 9. (4vs5) va al pos 10. -> Semi.
+    #          (3vs6) va al pos 11. (2vs7) va al pos 12. -> Semi.
+    # Esto asegura 1 y 2 solo se cruzan en final.
+    
+    matches_ordered = []
+    if len(cruces_finales) == 2: # Semis
+        matches_ordered = cruces_finales
+    elif len(cruces_finales) == 4: # Cuartos
+        # Orden bracket: 1vs8, 4vs5, 3vs6, 2vs7 (Para que 1 y 2 vayan a lados opuestos)
+        matches_ordered = [cruces_finales[0], cruces_finales[3], cruces_finales[2], cruces_finales[1]]
+    elif len(cruces_finales) == 8: # Octavos
+        # Lado A: 1vs16, 8vs9, 5vs12, 4vs13
+        # Lado B: 3vs14, 6vs11, 7vs10, 2vs15
+        # Indices en cruces_finales (0=1vs16, 1=2vs15, ... 7=8vs9)
+        matches_ordered = [
+            cruces_finales[0], cruces_finales[7], # Arriba Izq
+            cruces_finales[4], cruces_finales[3], # Abajo Izq
+            cruces_finales[2], cruces_finales[5], # Arriba Der
+            cruces_finales[6], cruces_finales[1]  # Abajo Der (El 2do mejor)
         ]
     else:
-        lista_ordenada = cruces_raw # Semis (2 zonas) es directo
+        matches_ordered = cruces_finales # Default
 
-    # 6. Insertar en Base de Datos
-    count = 0
-    for p1, p2 in lista_ordenada:
+    for p1, p2 in matches_ordered:
+        # Si hay un BYE, el partido pasa directo a Finalizado y el otro gana
+        estado = 'Próximo'
+        res = ''
+        ganador = None
+        
+        if p1 == "BYE":
+            estado = 'Finalizado'
+            ganador = p2
+            res = 'BYE'
+        elif p2 == "BYE":
+            estado = 'Finalizado'
+            ganador = p1
+            res = 'BYE'
+            
         run_action("""
             INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido, bracket_pos)
             VALUES (:tid, :p1, :p2, :inst, 'Próximo', :bp)
         """, {"tid": t_id, "p1": p1, "p2": p2, "inst": instancia, "bp": start_pos + count})
+        
+        # Si hubo BYE, actualizar inmediatamente
+        if ganador:
+            actualizar_bracket(
+                # Necesitamos el ID del partido recién creado. 
+                # Como run_action no retorna ID en esta implementación simple, hacemos update por bracket_pos
+                # Ojo: run_action con return_id=True existe pero el bucle anterior no lo usaba.
+                # Hacemos un update seguro post-insert.
+                None, t_id, start_pos + count, res, ganador
+            )
+            # Y marcarlo finalizado en DB
+            run_action("UPDATE partidos SET estado_partido = 'Finalizado', resultado = 'Pasa Directo', ganador = :g WHERE torneo_id = :tid AND bracket_pos = :bp",
+                       {"g": ganador, "tid": t_id, "bp": start_pos + count})
+
         count += 1
         
     limpiar_cache()
-    return True, f"✅ Se generaron {count} partidos de {instancia}."
+    return True, f"✅ Se generaron {count} partidos de {instancia}. (Total: {num_clasificados_base} clasificados + {byes_added} BYEs)."
 
 def mostrar_cuadro_playoff(torneo_id):
     """Visualiza esquemáticamente los cruces de playoff."""
@@ -2371,42 +2453,168 @@ def show_torneos_eventos_content():
                 if df_bracket is None or df_bracket.empty:
                     st.info("El cuadro de llaves aún no ha sido generado.")
                 else:
-                    # Reutilizamos estilos CSS del bracket
-                    st.markdown("""
+                    # Convertir DataFrame a Diccionario indexado por bracket_pos para acceso rápido
+                    matches_db = df_bracket.set_index('bracket_pos').to_dict('index')
+
+                    # Función auxiliar para generar el HTML de un partido específico
+                    def get_match_html(pos):
+                        row = matches_db.get(pos, {})
+                        p1 = row.get('pareja1', 'TBD') or 'TBD'
+                        p2 = row.get('pareja2', 'TBD') or 'TBD'
+                        ganador = row.get('ganador')
+                        
+                        # Formatear Sets (ej: separar "6-4" en "6" para P1 y "4" para P2)
+                        def fmt_sets(r, is_p1):
+                            scores = []
+                            for k in ['set1', 'set2', 'set3']:
+                                val = r.get(k)
+                                if val and '-' in str(val):
+                                    try:
+                                        parts = str(val).split('-')
+                                        scores.append(parts[0] if is_p1 else parts[1])
+                                    except: pass
+                            return " ".join(scores)
+
+                        s1_str = fmt_sets(row, True)
+                        s2_str = fmt_sets(row, False)
+                        
+                        # Asignar clase 'winner' si corresponde
+                        cls_p1 = "team winner" if ganador and ganador == p1 and p1 != 'TBD' else "team"
+                        cls_p2 = "team winner" if ganador and ganador == p2 and p2 != 'TBD' else "team"
+                        
+                        return f"""
+                        <div class="match">
+                            <div class="{cls_p1}"><span>{p1}</span> <span class="score">{s1_str}</span></div>
+                            <div class="{cls_p2}"><span>{p2}</span> <span class="score">{s2_str}</span></div>
+                        </div>
+                        """
+
+                    # Obtener Campeón (Posición 15 es la Final)
+                    final_row = matches_db.get(15, {})
+                    campeon = final_row.get('ganador', '?') if final_row.get('estado_partido') == 'Finalizado' else "?"
+
+                    # Inyectar datos en tu plantilla HTML (usando f-strings y doble llave {{ }} para el CSS)
+                    html_code = f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
                     <style>
-                        .bracket { display: flex; flex-direction: row; justify-content: space-between; overflow-x: auto; padding: 10px 0; }
-                        .round { display: flex; flex-direction: column; justify-content: space-around; flex: 1; margin: 0 10px; min-width: 160px; }
-                        .round-header { text-align: center; font-weight: bold; color: #00E676; margin-bottom: 10px; text-transform: uppercase; font-size: 0.8rem; border-bottom: 1px solid #333; }
-                        .match-card { background: #121212; border: 1px solid #39FF14; border-radius: 8px; padding: 10px; margin: 5px 0; position: relative; box-shadow: 0 0 5px rgba(57, 255, 20, 0.2); }
-                        .team-name { font-size: 0.8rem; color: #eee; margin-bottom: 2px; }
-                        .match-result { font-size: 0.75rem; color: #00E676; text-align: right; font-weight: bold; }
+                        body {{
+                            background-color: transparent;
+                            color: white;
+                            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                            margin: 0;
+                            padding: 0;
+                        }}
+                        .bracket-wrapper {{
+                            display: flex;
+                            flex-direction: row;
+                            overflow-x: auto;
+                            padding: 20px;
+                            gap: 40px;
+                        }}
+                        .round {{
+                            display: flex;
+                            flex-direction: column;
+                            justify-content: space-around;
+                            min-width: 220px;
+                        }}
+                        .round-title {{
+                            text-align: center;
+                            color: #888;
+                            font-size: 14px;
+                            margin-bottom: 20px;
+                            text-transform: uppercase;
+                            letter-spacing: 1px;
+                        }}
+                        .match {{
+                            background-color: #1A1A1A;
+                            border: 1px solid #333;
+                            border-radius: 6px;
+                            margin: 15px 0;
+                            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                            position: relative;
+                        }}
+                        .team {{
+                            display: flex;
+                            justify-content: space-between;
+                            padding: 10px 15px;
+                            border-bottom: 1px solid #222;
+                            font-size: 14px;
+                        }}
+                        .team:last-child {{
+                            border-bottom: none;
+                        }}
+                        .winner {{
+                            color: #00FF00;
+                            font-weight: bold;
+                            background-color: rgba(0, 255, 0, 0.05);
+                        }}
+                        .score {{
+                            font-weight: bold;
+                            color: #aaa;
+                            letter-spacing: 2px;
+                        }}
+                        .winner .score {{
+                            color: #00FF00;
+                        }}
+                        .round:not(:last-child) .match::after {{
+                            content: '';
+                            position: absolute;
+                            right: -20px;
+                            top: 50%;
+                            width: 20px;
+                            border-top: 2px solid #444;
+                        }}
+                        .campeon-card {{
+                            text-align: center;
+                            padding: 20px;
+                            border: 2px solid #00FF00;
+                            box-shadow: 0 0 15px rgba(0, 255, 0, 0.2);
+                        }}
+                        ::-webkit-scrollbar {{ height: 8px; }}
+                        ::-webkit-scrollbar-track {{ background: #111; }}
+                        ::-webkit-scrollbar-thumb {{ background: #333; border-radius: 4px; }}
+                        ::-webkit-scrollbar-thumb:hover {{ background: #00FF00; }}
                     </style>
-                    """, unsafe_allow_html=True)
+                    </head>
+                    <body>
 
-                    rounds = [
-                        ("Octavos", df_bracket[df_bracket['bracket_pos'] <= 8]),
-                        ("Cuartos", df_bracket[(df_bracket['bracket_pos'] > 8) & (df_bracket['bracket_pos'] <= 12)]),
-                        ("Semis", df_bracket[(df_bracket['bracket_pos'] > 12) & (df_bracket['bracket_pos'] <= 14)]),
-                        ("Final", df_bracket[df_bracket['bracket_pos'] == 15])
-                    ]
+                    <div class="bracket-wrapper">
+                        <div class="round">
+                            <div class="round-title">Cuartos de Final</div>
+                            {get_match_html(9)}
+                            {get_match_html(10)}
+                            {get_match_html(11)}
+                            {get_match_html(12)}
+                        </div>
 
-                    html = "<div class='bracket'>"
-                    for name, matches in rounds:
-                        if matches is not None and not matches.empty:
-                            html += f"<div class='round'><div class='round-header'>{name}</div>"
-                            for _, row in matches.iterrows():
-                                res = row['resultado'] if row['resultado'] else "vs"
-                                p1 = row['pareja1'] if row['pareja1'] else "TBD"
-                                p2 = row['pareja2'] if row['pareja2'] else "TBD"
-                                html += f"""
-                                <div class='match-card'>
-                                    <div class='team-name'>{p1}</div>
-                                    <div class='team-name'>{p2}</div>
-                                    <div class='match-result'>{res}</div>
-                                </div>"""
-                            html += "</div>"
-                    html += "</div>"
-                    st.markdown(html, unsafe_allow_html=True)
+                        <div class="round">
+                            <div class="round-title">Semifinales</div>
+                            {get_match_html(13)}
+                            {get_match_html(14)}
+                        </div>
+
+                        <div class="round">
+                            <div class="round-title">Final</div>
+                            {get_match_html(15)}
+                        </div>
+                        
+                        <div class="round">
+                            <div class="round-title">¡Campeones!</div>
+                            <div class="match campeon-card winner">
+                                <span style="font-size: 24px;">🏆</span><br>
+                                <span style="font-size: 18px; margin-top: 10px; display: inline-block;">{campeon}</span>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    </body>
+                    </html>
+                    """
+                    
+                    components.html(html_code, height=600, scrolling=True)
 
 @st.fragment
 def show_ranking_content():
@@ -3662,10 +3870,14 @@ elif choice == "⚙️ Admin":
 
                     c_z1, c_z2 = st.columns(2)
                     with c_z1:
-                        st.write("Opción A: Sorteo Automático")
+                        st.subheader("Opción A: Sorteo Automático")
+                        
+                        # --- SOLUCIÓN PROBLEMA 1: Selector de Preferencia ---
+                        pref_zona = st.radio("Tamaño Preferido de Zona", [3, 4], index=1, horizontal=True, help="El sistema intentará armar la mayor cantidad de grupos de este tamaño.")
+                        
                         if st.button("🎲 Generar Zonas Aleatorias", key="btn_sorteo_admin"):
                             # Usamos variables estables
-                            success, msg = generar_zonas(id_real, st.session_state.admin_cat_torneo)
+                            success, msg = generar_zonas(id_real, st.session_state.admin_cat_torneo, pref_tamano=pref_zona)
                             
                             if success:
                                 st.success("¡Zonas generadas con éxito!")
@@ -3674,7 +3886,7 @@ elif choice == "⚙️ Admin":
                             else:
                                 st.error(msg)
                     with c_z2:
-                        st.write("Opción B: Asignación Manual")
+                        st.subheader("Opción B: Asignación Manual")
 
                         # 3. Formulario de Asignación
                         with st.form("form_zona_manual"):
