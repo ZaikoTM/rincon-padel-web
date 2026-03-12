@@ -477,6 +477,10 @@ def cargar_datos(query, params=None):
     """
     params = normalize_params(params)
     
+    # Compatibilidad automática: Convertir sintaxis %(var)s (PostgreSQL) a :var (SQLAlchemy)
+    if params and isinstance(params, dict) and '%(' in query:
+        query = re.sub(r'%\((\w+)\)s', r':\1', query)
+    
     try:
         conn = get_db_connection()
         return conn.query(query, params=params, ttl=0)
@@ -1213,8 +1217,9 @@ def seccion_carga_resultados(torneo_id):
     
     # Obtener partidos pendientes de resultado (Próximo o En Juego)
     # Filtramos por estado != 'Finalizado' para permitir cargar los que están en juego también
+    # MODIFICADO: Incluimos set1, set2, set3 para pre-visualizar si ya hay algo cargado
     df_matches = cargar_datos("""
-        SELECT id, pareja1, pareja2, instancia, cancha, horario, estado_partido 
+        SELECT id, pareja1, pareja2, instancia, cancha, horario, estado_partido, set1, set2, set3 
         FROM partidos 
         WHERE torneo_id = :tid 
         AND estado_partido != 'Finalizado' 
@@ -1226,63 +1231,73 @@ def seccion_carga_resultados(torneo_id):
         st.info("No hay partidos de zona pendientes para cargar resultados.")
         return
 
-    st.caption("Ingresa los games de cada set. El sistema calculará sets y puntos automáticamente.")
+    st.caption("⚡ Modo Rápido (Móvil): Usa 'Iniciar' para vivo. Edita los games y guarda para finalizar.")
 
     # Iterar partidos
     for idx, row in df_matches.iterrows():
-        with st.expander(f"{row['instancia']} | {row['pareja1']} vs {row['pareja2']} ({row['estado_partido']})"):
-            # Botón de Inicio Rápido para cambiar estado a 'En Juego'
+        # Helper para parsear sets guardados "6-4" -> (6, 4)
+        def parse_set(val):
+            if val and '-' in str(val):
+                try: return int(val.split('-')[0]), int(val.split('-')[1])
+                except: return 0, 0
+            return 0, 0
+
+        s1_p1, s1_p2 = parse_set(row['set1'])
+        s2_p1, s2_p2 = parse_set(row['set2'])
+        s3_p1, s3_p2 = parse_set(row['set3'])
+
+        with st.container(border=True):
+            # Cabecera Compacta
+            st.markdown(f"**{row['instancia']}** | {row['pareja1']} vs {row['pareja2']}")
+            st.caption(f"Estado: {row['estado_partido']} | {row['horario']}")
+
+            # Botón Iniciar (Fuera del form para acción inmediata)
             if row['estado_partido'] == 'Próximo':
-                if st.button("⏱️ Iniciar Partido", key=f"btn_start_res_{row['id']}", use_container_width=True):
-                    run_action("UPDATE partidos SET estado_partido = 'En Juego' WHERE id = %(id)s", {"id": row['id']})
-                    st.toast("✅ Partido Iniciado: Visible en Web", icon="🚀")
+                if st.button("⏱️ Iniciar (En Vivo)", key=f"btn_start_res_{row['id']}", use_container_width=True):
+                    now = datetime.now().strftime("%H:%M")
+                    run_action("UPDATE partidos SET estado_partido = 'En Juego', hora_inicio_real = :h WHERE id = :id", {"h": now, "id": row['id']})
+                    st.toast("✅ Partido Iniciado", icon="🚀")
                     limpiar_cache()
                     time.sleep(0.5)
                     st.rerun()
 
-            c_p1, c_scores, c_p2 = st.columns([1, 2, 1])
-            
-            # Display Nombres
-            c_p1.markdown(f"<div style='text-align:right; font-weight:bold; padding-top:25px;'>{row['pareja1']}</div>", unsafe_allow_html=True)
-            c_p2.markdown(f"<div style='text-align:left; font-weight:bold; padding-top:25px;'>{row['pareja2']}</div>", unsafe_allow_html=True)
-            
-            # Inputs de Scores
-            with c_scores:
-                # Usamos columnas anidadas para los sets
-                cs1, cs2, cs3 = st.columns(3)
-                
-                # Set 1
-                s1_j1 = cs1.number_input("S1", min_value=0, max_value=7, key=f"s1_j1_{row['id']}", label_visibility="collapsed")
-                s1_j2 = cs1.number_input("S1", min_value=0, max_value=7, key=f"s1_j2_{row['id']}", label_visibility="collapsed")
-                
-                # Set 2
-                s2_j1 = cs2.number_input("S2", min_value=0, max_value=7, key=f"s2_j1_{row['id']}", label_visibility="collapsed")
-                s2_j2 = cs2.number_input("S2", min_value=0, max_value=7, key=f"s2_j2_{row['id']}", label_visibility="collapsed")
-                
-                # Set 3 / Tiebreak
-                s3_j1 = cs3.number_input("S3/TB", min_value=0, max_value=15, key=f"s3_j1_{row['id']}", label_visibility="collapsed")
-                s3_j2 = cs3.number_input("S3/TB", min_value=0, max_value=15, key=f"s3_j2_{row['id']}", label_visibility="collapsed")
+            # Formulario Optimizado (Grid Layout)
+            with st.form(key=f"form_res_{row['id']}"):
+                # Encabezados Sets
+                c_null, c_head1, c_head2, c_head3 = st.columns([2, 1, 1, 1])
+                c_head1.markdown("<div style='text-align:center; font-size:0.75rem; color:#888'>SET 1</div>", unsafe_allow_html=True)
+                c_head2.markdown("<div style='text-align:center; font-size:0.75rem; color:#888'>SET 2</div>", unsafe_allow_html=True)
+                c_head3.markdown("<div style='text-align:center; font-size:0.75rem; color:#888'>SET 3</div>", unsafe_allow_html=True)
 
-            # Botón Guardar
-            if st.button("💾 Guardar Resultado", key=f"btn_save_res_{row['id']}", type="primary", use_container_width=True):
-                # Validaciones básicas
-                played_sets = 0
-                if s1_j1 > 0 or s1_j2 > 0: played_sets += 1
-                if s2_j1 > 0 or s2_j2 > 0: played_sets += 1
-                if s3_j1 > 0 or s3_j2 > 0: played_sets += 1
-                
-                if played_sets == 0:
-                    st.error("Debes cargar al menos un set.")
-                else:
-                    with custom_spinner():
-                        score_p1 = [s1_j1, s2_j1, s3_j1]
-                        score_p2 = [s1_j2, s2_j2, s3_j2]
-                        procesar_resultado(row['id'], score_p1, score_p2, torneo_id)
+                # Fila Pareja 1
+                cp1_name, cp1_s1, cp1_s2, cp1_s3 = st.columns([2, 1, 1, 1])
+                cp1_name.markdown(f"<div style='padding-top:10px; font-weight:bold; font-size:0.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{row['pareja1']}</div>", unsafe_allow_html=True)
+                v1_1 = cp1_s1.number_input("S1", 0, 7, value=s1_p1, key=f"s1p1_{row['id']}", label_visibility="collapsed")
+                v1_2 = cp1_s2.number_input("S2", 0, 7, value=s2_p1, key=f"s2p1_{row['id']}", label_visibility="collapsed")
+                v1_3 = cp1_s3.number_input("S3", 0, 15, value=s3_p1, key=f"s3p1_{row['id']}", label_visibility="collapsed")
+
+                # Fila Pareja 2
+                cp2_name, cp2_s1, cp2_s2, cp2_s3 = st.columns([2, 1, 1, 1])
+                cp2_name.markdown(f"<div style='padding-top:10px; font-weight:bold; font-size:0.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>{row['pareja2']}</div>", unsafe_allow_html=True)
+                v2_1 = cp2_s1.number_input("S1", 0, 7, value=s1_p2, key=f"s1p2_{row['id']}", label_visibility="collapsed")
+                v2_2 = cp2_s2.number_input("S2", 0, 7, value=s2_p2, key=f"s2p2_{row['id']}", label_visibility="collapsed")
+                v2_3 = cp2_s3.number_input("S3", 0, 15, value=s3_p2, key=f"s3p2_{row['id']}", label_visibility="collapsed")
+
+                st.write("")
+                if st.form_submit_button("💾 Guardar y Finalizar", type="primary", use_container_width=True):
+                    score_p1 = [v1_1, v1_2, v1_3]
+                    score_p2 = [v2_1, v2_2, v2_3]
                     
-                    st.success("✅ Resultado cargado y tabla actualizada.")
-                    limpiar_cache()
-                    time.sleep(1)
-                    st.rerun()
+                    # Validación básica: Al menos un set jugado
+                    if sum(score_p1) + sum(score_p2) == 0:
+                         st.error("Carga al menos un game.")
+                    else:
+                        with custom_spinner():
+                            procesar_resultado(row['id'], score_p1, score_p2, torneo_id)
+                        st.success("✅ Guardado")
+                        limpiar_cache()
+                        time.sleep(1)
+                        st.rerun()
 
 def verificador_cupos():
     """Dashboard visual para controlar el estado de inscripción de las categorías."""
@@ -2399,25 +2414,13 @@ def show_torneos_eventos_content():
                             # Contenedor Principal
                             st.markdown(f"<div class='pc-zone-container'><div class='pc-zone-title'>🏆 {nombre_zona}</div>", unsafe_allow_html=True)
 
-                            # 1. TABLA HTML CUSTOM
-                            html_table = """
-                            <table class="pc-table">
-                                <thead>
-                                    <tr>
-                                        <th class="col-left">PAREJA</th>
-                                        <th>PJ</th><th>PG</th><th>PP</th>
-                                        <th>SF</th><th>SC</th><th>DF</th>
-                                        <th>PTS</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                            """
+                            table_rows = []
                             for i, row in enumerate(df_grupo.itertuples()):
                                 # Resaltar top 2 (Clasificados)
                                 row_class = "pc-row-qualified" if i < 2 else ""
                                 badge = "✅" if i < 2 else ""
                                 
-                                html_table += f"""
+                                table_rows.append(f"""
                                     <tr class="{row_class}">
                                         <td class="col-left">
                                             <span class="pc-couple-name">{row.pareja} {badge}</span>
@@ -2430,9 +2433,24 @@ def show_torneos_eventos_content():
                                         <td>{row.dg}</td>
                                         <td class="col-pts">{row.pts}</td>
                                     </tr>
-                                """
-                            html_table += "</tbody></table>"
-                            st.markdown(html_table, unsafe_allow_html=True)
+                                """)
+                            
+                            full_html_table = f"""
+                            <table class="pc-table">
+                                <thead>
+                                    <tr>
+                                        <th class="col-left">PAREJA</th>
+                                        <th>PJ</th><th>PG</th><th>PP</th>
+                                        <th>SF</th><th>SC</th><th>DF</th>
+                                        <th>PTS</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {''.join(table_rows)}
+                                </tbody>
+                            </table>
+                            """
+                            st.markdown(full_html_table, unsafe_allow_html=True)
 
                             # 2. TARJETAS DE PARTIDOS
                             st.markdown("<div style='margin-top:15px; font-size:0.75rem; color:#666; font-weight:bold; letter-spacing:1px; border-bottom:1px solid #222; padding-bottom:5px;'>PARTIDOS</div>", unsafe_allow_html=True)
@@ -2572,7 +2590,7 @@ def show_ranking_content():
             ORDER BY total_puntos DESC 
             LIMIT 10
         """
-        params = {"categoria": cat_sel}
+        params = {"categoria": cat_sel} 
         
     df_ranking = get_data(query, params=params)
     
