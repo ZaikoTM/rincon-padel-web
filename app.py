@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import random
 from PIL import Image, ImageDraw, ImageFont
@@ -59,211 +60,59 @@ with st.sidebar:
 
 css_dark_neon = """
     <style>
-        /* Transición Suave General */
-        .stApp, section[data-testid="stSidebar"], .stButton button, .stTextInput input, div[data-testid="stExpander"], .dashboard-card, .card {
-            transition: all 0.5s ease !important;
-        }
-
         /* Fondo General */
         .stApp {
-            background-color: #000000;
-            background-image: radial-gradient(circle at center, #111111 0%, #000000 100%);
-            border-left: 2px solid #00FF41;
-            border-right: 2px solid #00FF41;
-        }
-        
-        /* Animación Pulso Neón */
-        @keyframes neonPulse {
-            0% { box-shadow: 0 0 5px #00FF41, inset 0 0 5px #00FF41; border-color: #00FF41; }
-            50% { box-shadow: 0 0 20px #00FF41, inset 0 0 10px #00FF41; border-color: #39FF14; }
-            100% { box-shadow: 0 0 5px #00FF41, inset 0 0 5px #00FF41; border-color: #00FF41; }
+            background-color: #0A0A0A !important;
+            color: #FFFFFF !important;
         }
 
-        /* Animación Degradado Sidebar */
-        @keyframes gradientSidebar {
-            0% { background-position: 0% 0%; }
-            50% { background-position: 0% 100%; }
-            100% { background-position: 0% 0%; }
+        /* Títulos (h1, h2, h3) */
+        h1, h2, h3 {
+            color: #00FF00 !important;
+            font-family: 'Segoe UI', sans-serif !important;
+        }
+        h1 {
+            text-shadow: 0 0 10px rgba(0, 255, 0, 0.5) !important;
         }
 
-        /* Animación Borde Respirando */
-        @keyframes breatheBorder {
-            0% { border-right-color: rgba(0, 255, 65, 0.5); box-shadow: 2px 0 10px rgba(0, 255, 65, 0.2); }
-            100% { border-right-color: rgba(0, 255, 65, 1.0); box-shadow: 4px 0 20px rgba(0, 255, 65, 0.6); }
-        }
-        
-        /* --- ESTILOS BARRA LATERAL (SIDEBAR) --- */
-        
-        /* Contenedor Principal Sidebar */
-        section[data-testid="stSidebar"] {
-            /* Fondo degradado animado sutil */
-            background: linear-gradient(180deg, #050505, #111111, #050505);
-            background-size: 100% 400%;
-            animation: gradientSidebar 15s ease infinite, breatheBorder 3s infinite alternate;
-            
-            /* Borde derecho neón dinámico (definido en animación) */
-            border-right: 2px solid #00FF41;
-        }
-        
-        /* Inputs del Sidebar: Fondo negro, bordes redondeados, borde neón fino */
-        section[data-testid="stSidebar"] .stTextInput input {
-            background-color: #000000 !important;
-            color: #ccffcc !important; /* Verde neón suave */
-            border: 1px solid #00FF41 !important;
+        /* Contenedores de Streamlit */
+        div.stContainer, .dashboard-card, .card, .admin-card, .player-card, .h2h-card, .ranking-card, .match-card, div[data-testid="stForm"] {
+            background-color: #1A1A1A !important;
+            border: 1px solid #333 !important;
             border-radius: 10px !important;
-            box-shadow: 0 0 5px rgba(0, 255, 65, 0.3); /* Glow constante */
-        }
-        
-        /* Brillo al hacer foco en inputs */
-        section[data-testid="stSidebar"] .stTextInput input:focus {
-            box-shadow: 0 0 15px rgba(0, 255, 65, 0.4) !important;
-            border-color: #39FF14 !important;
-            color: #FFFFFF !important;
-        }
-        
-        /* Botones del Sidebar (Ingresar): Verde neón sólido, resplandor inferior */
-        section[data-testid="stSidebar"] .stButton button {
-            background-color: #00FF41 !important;
-            background-image: none !important;
-            color: #000000 !important;
-            font-weight: bold !important;
-            border: none !important;
-            border-radius: 10px !important;
-            box-shadow: 0 0 15px rgba(0, 255, 65, 0.6) !important; /* Glow constante */
-            transition: transform 0.2s ease, box-shadow 0.2s ease !important;
-            animation: none !important;
-        }
-        section[data-testid="stSidebar"] .stButton button:hover {
-            box-shadow: 0 0 25px #00FF41, 0 10px 25px rgba(0, 255, 65, 0.7) !important;
-            transform: translateY(-2px);
-        }
-        
-        /* Estilo Tarjeta Neón para el Login (Expander) */
-        section[data-testid="stSidebar"] div[data-testid="stExpander"] {
-            border: 1px solid rgba(0, 255, 65, 0.4) !important;
-            border-radius: 12px !important;
-            background-color: rgba(0, 0, 0, 0.5) !important; /* Fondo translúcido */
-            backdrop-filter: blur(10px) !important; /* Efecto vidrio */
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5) !important;
-        }
-        section[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
-            color: #00FF41 !important;
-            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3) !important;
         }
 
-        /* Tipografía */
-        h1, h2, h3, h4, h5, h6, .rincon-header, .zona-header {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
-            text-shadow: 0 0 10px #00FF41 !important;
-            color: #FFFFFF !important;
-        }
-        
-        /* Encabezados institucionales */
-        .rincon-header { 
-            background-color: #000000; 
-            color: #FFFFFF; 
-            text-align: center; 
-            padding: 20px; 
-            border-radius: 10px; 
-            border: 4px double #00FF41; 
-            text-transform: uppercase; 
-            font-weight: 900; 
-            font-size: 26px; 
-            letter-spacing: 3px; 
-            text-shadow: 0 0 10px #00FF41, 0 0 20px #00FF41, 0 0 40px #00FF41;
-            animation: neonPulse 3s infinite alternate;
-            margin-bottom: 25px;
-        }
-        .zona-header { background-color: #1E1E1E; color: #FFFFFF; padding: 12px; border-left: 6px solid #00FF41; margin-top: 25px; margin-bottom: 15px; font-weight: bold; font-size: 16px; text-transform: uppercase; border-radius: 0px 8px 8px 0px; }
-
-        /* Botones Generales (No Sidebar) */
-        .stButton button {
-            animation: neonPulse 3s infinite alternate;
-        }
-        .stButton button:hover {
-            box-shadow: 0 0 30px #00FF41, inset 0 0 15px #00FF41 !important;
-        }
-        
-        /* Contenedores Principales (Cards y Bloques) */
-        .dashboard-card, .card, .admin-card, .player-card, .h2h-card, .ranking-card, .match-card, div[data-testid="stForm"] {
-            background-color: rgba(30, 30, 30, 0.8) !important;
-            border: 1px solid #00FF41 !important;
-            border-radius: 15px !important;
-            box-shadow: 0 0 15px rgba(0, 255, 65, 0.2) !important;
-            color: #E0E0E0 !important;
-        }
-
-        /* Ajustes específicos para textos dentro de cards */
-        .card-title, .dash-title, .player-name, .team-name {
-            color: #00FF41 !important;
-            text-shadow: none !important;
-        }
-        
-        /* --- TABS (Pestañas Estilo Botón) --- */
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 8px;
-            background-color: transparent;
-            border-bottom: none !important;
-        }
-        .stTabs [data-baseweb="tab"] {
-            background-color: transparent !important;
-            border: 1px solid #00FF41 !important;
-            color: #FFFFFF !important;
-            border-radius: 5px !important;
-            padding: 10px 20px !important;
-            font-weight: 500 !important;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: #00FF41 !important;
-            color: #000000 !important;
-            font-weight: bold !important;
-            box-shadow: 0 0 10px #00FF41 !important;
-        }
-
-        /* --- SELECTBOX & INPUTS (Diseño Neon Minimalista) --- */
-        .stSelectbox div[data-baseweb="select"] > div, .stTextInput input, .stNumberInput input, .stDateInput input {
-            background-color: #000000 !important;
-            color: #FFFFFF !important;
-            border: 1px solid #00FF41 !important;
+        /* Imágenes */
+        img {
             border-radius: 8px !important;
+            transition: transform 0.3s ease, box-shadow 0.3s ease !important;
         }
-        .stSelectbox div[data-baseweb="select"]:hover > div, .stTextInput input:hover {
-            box-shadow: 0 0 10px rgba(0, 255, 65, 0.3) !important;
-            border-color: #39FF14 !important;
-        }
-        .stSelectbox div[data-baseweb="select"]:focus-within > div, .stTextInput input:focus {
-            box-shadow: 0 0 15px rgba(0, 255, 65, 0.6) !important;
-            border-color: #39FF14 !important;
-        }
-        .stSelectbox div[data-baseweb="select"] span, .stSelectbox div[data-baseweb="select"] svg {
-            color: #FFFFFF !important;
-            fill: #FFFFFF !important;
+        img:hover {
+            transform: scale(1.03) !important;
+            box-shadow: 0 0 15px #00FF00 !important;
         }
 
-        /* --- DATAFRAME & TABLES (Estilo Tabla de Posiciones) --- */
-        [data-testid="stDataFrame"] {
-            border: 1px solid #00FF41 !important;
-            border-radius: 10px !important;
-            background-color: #121212 !important;
-            padding: 5px !important;
-            box-shadow: 0 0 10px rgba(0, 255, 65, 0.1) !important;
+        /* Botones (.stButton>button) */
+        .stButton > button {
+            background-color: #00FF00 !important;
+            color: #000000 !important;
+            font-weight: bold !important;
+            text-transform: uppercase; 
+            border: none !important;
+            transition: all 0.3s ease !important;
         }
-        
-        /* Estilos para tablas HTML (st.table o st.markdown) */
-        table {
-            border-collapse: collapse !important;
-            width: 100% !important;
+        .stButton > button:hover {
+            background-color: #FFFFFF !important;
+            color: black !important;
+        }
+
+        /* Ajustes adicionales para inputs en modo oscuro */
+        .stTextInput input, .stSelectbox div[data-baseweb="select"] > div, .stNumberInput input {
+            background-color: #1A1A1A !important; 
+            color: white !important; 
             border: 1px solid #333 !important;
         }
-        th {
-            background-color: #000000 !important;
-            color: #00FF41 !important;
-            border-bottom: 2px solid #00FF41 !important;
-        }
-        tr:nth-child(even) { background-color: #1E1E1E !important; }
-        tr:nth-child(odd) { background-color: #121212 !important; }
-        tr:hover { box-shadow: inset 0 0 10px rgba(0, 255, 65, 0.2) !important; }
-        td { border-bottom: 1px solid #333 !important; color: #ddd !important; }
     </style>
 """
 
@@ -920,10 +769,12 @@ def cerrar_zonas_y_generar_playoffs(torneo_id):
     for z, equipos in zonas_dict.items():
         # Ordenar equipos dentro de la zona (el SQL ya ordenó global, pero aseguramos por zona)
         equipos_sorted = sorted(equipos, key=lambda x: (x['pts'], x['ds'], x['dg']), reverse=True)
+        # Extraer letra de zona (Ej: "Zona A" -> "A")
+        z_letra = z.replace("Zona ", "").strip()
         
-        if len(equipos_sorted) >= 1: clasificados.append( (equipos_sorted[0]['pareja'], 1, equipos_sorted[0]) )
-        if len(equipos_sorted) >= 2: clasificados.append( (equipos_sorted[1]['pareja'], 2, equipos_sorted[1]) )
-        if len(equipos_sorted) >= 3: terceros.append( (equipos_sorted[2]['pareja'], 3, equipos_sorted[2]) )
+        if len(equipos_sorted) >= 1: clasificados.append( (f"1{z_letra} - {equipos_sorted[0]['pareja']}", 1, equipos_sorted[0]) )
+        if len(equipos_sorted) >= 2: clasificados.append( (f"2{z_letra} - {equipos_sorted[1]['pareja']}", 2, equipos_sorted[1]) )
+        if len(equipos_sorted) >= 3: terceros.append( (f"3{z_letra} - {equipos_sorted[2]['pareja']}", 3, equipos_sorted[2]) )
 
     num_clasificados_base = len(clasificados)
     
@@ -943,7 +794,8 @@ def cerrar_zonas_y_generar_playoffs(torneo_id):
     
     while slots_needed > 0 and len(terceros) > 0:
         top_3ro = terceros.pop(0)
-        clasificados.append(top_3ro)
+        # Ya tiene el nombre formateado "3X - Pareja" desde el bucle anterior
+        clasificados.append(top_3ro) 
         slots_needed -= 1
         
     # B) Rellenar con BYE (Si aun faltan)
@@ -1058,31 +910,198 @@ def cerrar_zonas_y_generar_playoffs(torneo_id):
     limpiar_cache()
     return True, f"✅ Se generaron {count} partidos de {instancia}. (Total: {num_clasificados_base} clasificados + {byes_added} BYEs)."
 
+def mostrar_estadisticas_torneo(torneo_id):
+    """Muestra un dashboard con estadísticas clave del torneo seleccionado."""
+    st.markdown("### 📊 Estadísticas del Torneo")
+    
+    # 1. Total Participantes
+    df_insc = cargar_datos("SELECT count(*) as c FROM inscripciones WHERE torneo_id = :tid", {"tid": int(torneo_id)})
+    total_parejas = df_insc.iloc[0]['c'] if df_insc is not None else 0
+    
+    # 2. Total Partidos Jugados (Finalizados)
+    df_matches = cargar_datos("SELECT resultado FROM partidos WHERE torneo_id = :tid AND estado_partido = 'Finalizado'", {"tid": int(torneo_id)})
+    total_jugados = len(df_matches) if df_matches is not None else 0
+    
+    # 3. Desglose Sets (2 vs 3)
+    sets_2 = 0
+    sets_3 = 0
+    if df_matches is not None and not df_matches.empty:
+        for res in df_matches['resultado']:
+            if not res: continue
+            # Heurística: contar bloques separados por espacio que contengan guión (ej: "6-4 6-4" = 2 sets)
+            parts = [p for p in res.split(' ') if '-' in p]
+            if len(parts) == 2: sets_2 += 1
+            elif len(parts) >= 3: sets_3 += 1
+            
+    # Renderizado Metric
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Parejas Inscritas", total_parejas, border=True)
+    c2.metric("Partidos Finalizados", total_jugados, border=True)
+    c3.metric("Definidos en 2 Sets", sets_2, border=True)
+    c4.metric("Definidos en 3 Sets", sets_3, border=True)
+    st.divider()
+
 def mostrar_cuadro_playoff(torneo_id):
-    """Visualiza esquemáticamente los cruces de playoff."""
-    df = cargar_datos("SELECT * FROM partidos WHERE torneo_id = :tid AND instancia IN ('Octavos', 'Cuartos', 'Semis', 'Final') ORDER BY bracket_pos", {"tid": int(torneo_id)})
+    """Visualiza los cruces de playoff con Bracket HTML (Inyectado)."""
+    df = cargar_datos("SELECT * FROM partidos WHERE torneo_id = :tid AND bracket_pos IS NOT NULL ORDER BY bracket_pos", {"tid": int(torneo_id)})
     
     if df is None or df.empty:
         return
 
-    st.markdown("### 🧬 Cuadro de Playoffs")
-    stages = ['Octavos', 'Cuartos', 'Semis', 'Final']
-    present_stages = [s for s in stages if s in df['instancia'].unique()]
+    matches = df.set_index('bracket_pos').to_dict('index')
+
+    def get_match_html(pos):
+        m = matches.get(pos, {})
+        p1 = m.get('pareja1', 'TBD') or 'TBD'
+        p2 = m.get('pareja2', 'TBD') or 'TBD'
+        ganador = m.get('ganador')
+        
+        def get_score(s_idx):
+            res = []
+            for k in ['set1', 'set2', 'set3']:
+                val = m.get(k)
+                if val and '-' in str(val):
+                    try: res.append(str(val).split('-')[s_idx])
+                    except: pass
+            return " ".join(res)
+
+        s_p1 = get_score(0)
+        s_p2 = get_score(1)
+        
+        c1 = "team winner" if ganador and ganador == p1 and p1 != 'TBD' else "team"
+        c2 = "team winner" if ganador and ganador == p2 and p2 != 'TBD' else "team"
+
+        return f"""
+        <div class="match">
+            <div class="{c1}"><span>{p1}</span> <span class="score">{s_p1}</span></div>
+            <div class="{c2}"><span>{p2}</span> <span class="score">{s_p2}</span></div>
+        </div>
+        """
+
+    # Detectar rondas disponibles para evitar columnas vacías
+    has_oct = any(k in matches for k in range(1, 9))
+    has_4tos = any(k in matches for k in range(9, 13))
+    has_semis = any(k in matches for k in range(13, 15))
+
+    rounds_html = ""
+    if has_oct:
+        rounds_html += f'<div class="round"><div class="round-title">Octavos</div>{"".join([get_match_html(i) for i in range(1, 9)])}</div>'
+    if has_4tos or has_oct:
+        rounds_html += f'<div class="round"><div class="round-title">Cuartos</div>{"".join([get_match_html(i) for i in range(9, 13)])}</div>'
+    if has_semis or has_4tos:
+        rounds_html += f'<div class="round"><div class="round-title">Semis</div>{"".join([get_match_html(i) for i in range(13, 15)])}</div>'
     
-    cols = st.columns(len(present_stages))
-    for idx, stage in enumerate(present_stages):
-        with cols[idx]:
-            st.markdown(f"<div style='text-align:center; font-weight:bold; color:#39FF14; border-bottom:1px solid #333; margin-bottom:10px;'>{stage}</div>", unsafe_allow_html=True)
-            matches = df[df['instancia'] == stage]
-            for _, m in matches.iterrows():
-                res = m['resultado'] if m['resultado'] else "vs"
-                st.markdown(f"""
-                <div style="border:1px solid #333; border-radius:8px; padding:10px; margin-bottom:10px; background:#1E1E1E; font-size:0.85rem;">
-                    <div style="font-weight:bold; color:#eee;">{m['pareja1']}</div>
-                    <div style="text-align:center; color:#39FF14; font-weight:bold; font-size:0.8rem; margin:2px 0;">{res}</div>
-                    <div style="font-weight:bold; color:#eee;">{m['pareja2']}</div>
-                </div>
-                """, unsafe_allow_html=True)
+    # Final y Campeón siempre visibles
+    rounds_html += f'<div class="round"><div class="round-title">Final</div>{get_match_html(15)}</div>'
+    campeon = matches.get(15, {}).get('ganador', '?')
+    
+    rounds_html += f"""
+    <div class="round"><div class="round-title">Campeón</div>
+    <div class="match campeon-card winner"><span style="font-size: 24px;">🏆</span><br><span style="font-size: 16px;">{campeon}</span></div></div>
+    """
+
+    html_code = f"""
+    <!DOCTYPE html><html><head><style>
+        body {{ background: transparent; color: white; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; }}
+        .bracket-wrapper {{ display: flex; flex-direction: row; overflow-x: auto; padding: 20px; gap: 40px; }}
+        .round {{ display: flex; flex-direction: column; justify-content: space-around; min-width: 220px; }}
+        .round-title {{ text-align: center; color: #888; font-size: 14px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 1px; }}
+        .match {{ background: #1A1A1A; border: 1px solid #333; border-radius: 6px; margin: 15px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.3); position: relative; }}
+        .team {{ display: flex; justify-content: space-between; padding: 10px 15px; border-bottom: 1px solid #222; font-size: 14px; }}
+        .team:last-child {{ border-bottom: none; }}
+        .winner {{ color: #00FF00; background: rgba(0, 255, 0, 0.05); font-weight: bold; }}
+        .score {{ font-weight: bold; color: #aaa; letter-spacing: 2px; }}
+        .winner .score {{ color: #00FF00; }}
+        .round:not(:last-child) .match::after {{ content: ''; position: absolute; right: -20px; top: 50%; width: 20px; border-top: 2px solid #444; }}
+        .campeon-card {{ text-align: center; padding: 20px; border: 2px solid #00FF00; box-shadow: 0 0 15px rgba(0, 255, 0, 0.2); }}
+        ::-webkit-scrollbar {{ height: 8px; }} ::-webkit-scrollbar-track {{ background: #111; }} ::-webkit-scrollbar-thumb {{ background: #333; border-radius: 4px; }}
+    </style></head><body>
+    <div class="bracket-wrapper">{rounds_html}</div>
+    </body></html>
+    """
+    components.html(html_code, height=600, scrolling=True)
+
+import random
+import streamlit as st
+
+def mostrar_consejo_padel():
+    consejos = [
+        {"autor": "Ariana Sánchez", "texto": "La magia surge cuando el trabajo táctico se vuelve completamente automático."},
+        {"autor": "Paula Josemaría", "texto": "La explosividad no sirve de nada si no sabes leer el espacio libre en la pista."},
+        {"autor": "Gemma Triay", "texto": "El dominio aéreo te da el control de la red, pero la paciencia te da el punto."},
+        {"autor": "Alejandra Salazar", "texto": "La bandeja no es solo un golpe, es el termómetro que mide tu confianza."},
+        {"autor": "Delfi Brea", "texto": "Correr todas las pelotas no es un esfuerzo extra, es un compromiso innegociable."},
+        {"autor": "Bea González", "texto": "La juventud te da piernas y velocidad, pero la experiencia te enseña cuándo usarlas."},
+        {"autor": "Marta Ortega", "texto": "El control del ritmo del partido es mucho más letal que el remate más fuerte."},
+        {"autor": "Tolito Aguirre", "texto": "Si vas a tirar una fantasía, que sea porque ya leíste el miedo en los ojos del rival."},
+        {"autor": "Gonzalo Alfonso", "texto": "La potencia de tus piernas es lo que realmente define la agresividad de tu volea."},
+        {"autor": "Leo Augsburger", "texto": "Cuando el físico te sobra, el verdadero desafío es aprender a usar los tiempos del partido."},
+        {"autor": "Tino Libaak", "texto": "No respetes la historia o el ranking de los que están enfrente, respeta solamente a la pelota."},
+        {"autor": "Mike Yanguas", "texto": "Jugar constantemente con las alturas y los ángulos desarma a la defensa más estática."},
+        {"autor": "Ramiro Moyano", "texto": "La transición de defensa al ataque tiene que ser un bloque sólido, nunca un movimiento aislado."},
+        {"autor": "Javi Leal", "texto": "Pegar fuerte es un recurso. Pegar fuerte y al lugar correcto es un talento."},
+        {"autor": "Edu Alonso", "texto": "El pádel moderno premia al jugador que sabe sufrir atrás y acelerar sin dudar adelante."},
+        {"autor": "Pincho Fernández", "texto": "Tu mejor golpe siempre será exactamente el que el rival menos espera en ese instante."},
+        {"autor": "García Diestro", "texto": "Ser zurdo es una ventaja solamente si sabes cruzar la bola donde realmente duele."},
+        {"autor": "Denis Perino", "texto": "Una movilidad extrema te permite estar siempre un segundo antes que la bola."},
+        {"autor": "Alex Chozas", "texto": "El atrevimiento premia a los que no tienen ningún miedo de equivocarse en la red."},
+        {"autor": "Juan Cruz Belluati", "texto": "Una víbora bien cortada y profunda es el principio del fin para los defensores."},
+        {"autor": "Lucas Bergamini", "texto": "No subestimes jamás a un jugador defensivo; ellos te ganan por pura desesperación."},
+        {"autor": "Víctor Ruiz", "texto": "Mantener la intensidad los tres sets requiere tanta fortaleza mental como preparación física."},
+        {"autor": "Gonzalo Rubio", "texto": "El juego aéreo te impone el respeto, pero el juego raso y firme te da los puntos."},
+        {"autor": "Salva Oria", "texto": "La anticipación es el arma silenciosa de los que leen el pádel antes de jugarlo."},
+        {"autor": "Marc Quílez", "texto": "Trabaja la volea de bloqueo, es tu único salvavidas cuando el rival acelera a quemarropa."},
+        {"autor": "Javi Ruiz", "texto": "La consistencia y no cometer errores no forzados es la llave maestra en los torneos largos."},
+        {"autor": "Aranza Osoro", "texto": "La garra significa que el partido no se termina hasta que la última bola toque el piso."},
+        {"autor": "Patty Llaguno", "texto": "La colocación milimétrica y la táctica siempre le ganarán a la fuerza descontrolada."},
+        {"autor": "Lucía Sainz", "texto": "Un físico bien trabajado es lo único que te mantiene lúcido cuando llegas al tercer set."},
+        {"autor": "Virginia Riera", "texto": "El orden táctico es tu armadura para los días en los que los golpes simplemente no entran."},
+        {"autor": "Fernando Belasteguín", "texto": "El talento te hace ganar partidos, pero el trabajo duro, el compañero y la inteligencia te hacen ganar torneos."},
+        {"autor": "Alejandro Galán", "texto": "La velocidad no es solo física, está en la cabeza. Anticípate a la jugada y dominarás la red."},
+        {"autor": "Juan Martín Díaz", "texto": "La creatividad nace cuando dominas la técnica. Entrena los golpes aburridos para luego poder hacer magia."},
+        {"autor": "Agustín Tapia", "texto": "Nunca dejes de atreverte. La magia ocurre cuando confías ciegamente en tus instintos y vuelas en la pista."},
+        {"autor": "Sanyo Gutiérrez", "texto": "El partido se juega como una partida de ajedrez. Piensa dos tiros por delante de tu rival."},
+        {"autor": "Miguel Lamperti", "texto": "Deja el alma en cada punto. La actitud te da ese 10% extra de energía cuando las piernas ya no responden."},
+        {"autor": "Franco Stupaczuk", "texto": "El salto y la pegada se entrenan, pero el hambre de ganar se lleva adentro."},
+        {"autor": "Maxi Sánchez", "texto": "La solidez desde el fondo de la pista es la base innegociable para construir cualquier victoria."},
+        {"autor": "Juan Lebrón", "texto": "La potencia intimida, pero la agresividad constante y la presión asfixian al rival."},
+        {"autor": "Pablo Lima", "texto": "El orden táctico, la disciplina y la paciencia son tus mejores aliados en los momentos de presión."},
+        {"autor": "Paquito Navarro", "texto": "El pádel es pura pasión. Si no te diviertes sufriendo y peleando cada bola, no estás jugando de verdad."},
+        {"autor": "Arturo Coello", "texto": "Aprovecha tu físico y tu pegada, pero nunca olvides que el pádel es, ante todo, un deporte de precisión."},
+        {"autor": "Javier Garrido", "texto": "Pegarle duro es fácil, saber exactamente cuándo hacerlo es lo que te hace distinto."},
+        {"autor": "Álex Ruiz", "texto": "La cabeza fría para pensar y el corazón caliente para competir. Esa es la fórmula."},
+        {"autor": "Xisco Gil", "texto": "El trabajo invisible de todos los días es el que te da los resultados que todos ven los domingos."},
+        {"autor": "Roby Gattiker", "texto": "En el pádel los básicos nunca mueren. Una volea firme y un globo profundo siempre serán tus mejores armas."},
+        {"autor": "Alejandro Lasaigues", "texto": "La historia del pádel se escribió con muñeca, anticipación y estrategia, no solo con fuerza bruta."},
+        {"autor": "Hernán Auguste", "texto": "Entender, respetar y potenciar a tu compañero es el 50% del éxito en este deporte."},
+        {"autor": "Gaby Reca", "texto": "La técnica impecable te salva cuando el físico no llega. Pule tus golpes hasta que sean automáticos."},
+        {"autor": "Seba Nerone", "texto": "En la pista, el coraje y la personalidad valen tanto como el mejor remate por tres metros."},
+        {"autor": "Cristian Gutiérrez", "texto": "La magia sin control no sirve de nada. Dale sentido y dirección a cada toque que hagas."},
+        {"autor": "Matías Díaz", "texto": "El instinto guerrero no nace, se hace entrenando cada día como si fuera la final de un mundial."},
+        {"autor": "Martín Di Nenno", "texto": "No importa cuántas veces te hagan correr al rincón, la actitud y el sacrificio en defensa ganan los partidos más difíciles."},
+        {"autor": "Fede Chingotto", "texto": "No hace falta ser el más alto ni el más fuerte si eres el más inteligente posicionándote en la cancha."},
+        {"autor": "Jon Sanz", "texto": "La chispa, la velocidad y la energía contagiosa pueden cambiar el ritmo y el destino de cualquier partido."},
+        {"autor": "Javi Rico", "texto": "Lo que realmente importa es que el rival sienta que no vas a dar ni una sola bola por perdida."},
+        {"autor": "Momo González", "texto": "El talento espectacular arriba tiene que ir obligatoriamente acompañado de una defensa impecable abajo."},
+        {"autor": "Coki Nieto", "texto": "El volumen de juego asfixia. Oblígate siempre a meter una bola más que los que están enfrente."},
+        {"autor": "Lucas Campagnolo", "texto": "Siente la energía del partido, vívelo. El pádel es espectáculo y pura emoción en cada transición."},
+        {"autor": "Alejandro Ruiz Granados", "texto": "Los obstáculos te enseñan que cada minuto compitiendo en el 20x10 es un privilegio. Disfruta el proceso."}
+    ]
+
+    consejo_del_dia = random.choice(consejos)
+
+    # NUEVO DISEÑO: Tarjeta responsive (width 100%), padding reducido
+    html_consejo = f"""
+    <div style="display: flex; justify-content: center; margin-bottom: 15px; margin-top: 15px;">
+        <div style="background: linear-gradient(145deg, #111111, #1a1a1a); border: 1px solid #333; border-top: 3px solid #00FF00; border-radius: 12px; padding: 15px 20px; width: 100%; text-align: center; box-shadow: 0 4px 10px rgba(0,255,0,0.05);">
+            <div style="font-size: 2rem; color: #00FF00; margin-bottom: -15px; font-family: Georgia, serif;">❝</div>
+            <p style="color: #FFFFFF; font-size: 1.1rem; font-style: italic; font-weight: 300; line-height: 1.4; margin-bottom: 10px;">{consejo_del_dia['texto']}</p>
+            <p style="color: #00FF00; font-weight: 700; margin: 0; font-size: 0.85rem; letter-spacing: 1.5px; text-transform: uppercase;">— {consejo_del_dia['autor']} —</p>
+        </div>
+    </div>
+    """
+    
+    st.markdown(html_consejo, unsafe_allow_html=True)
 
 def seccion_gestion_horarios(torneo_id):
     st.subheader("🛠️ Gestión de Horarios (Zona)")
@@ -1710,6 +1729,53 @@ def mask_phone_number(phone):
         return p[:4] + "-XXXXXX"
     return "🔒 Privado"
 
+def mostrar_seccion_sede():
+    # Encabezado
+    st.markdown("""
+        <h1 style="text-align: center;">📍 Rincón Padel Villaguay</h1>
+        <p style="text-align: center; font-size: 1.1rem; color: #ccc;">
+            Somos <span style="color: #00FF00; font-weight: bold;">Rincón Padel Villaguay</span>, nos ubicamos en la esquina de <span style="color: #00FF00; font-weight: bold;">Buenos Aires y Cinto</span>. 
+            Vení a conocer nuestras instalaciones y a disfrutar del mejor pádel de la ciudad. ¡Te esperamos!
+        </p>
+    """, unsafe_allow_html=True)
+
+    # Mapa
+    mapa_html = """<div style="display: flex; justify-content: center; padding: 20px 0;"><iframe src="https://www.google.com/maps/embed?pb=!1m17!1m12!1m3!1d299.47519571623354!2d-59.02399176228754!3d-31.874656111865367!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m2!1m1!2zMzHCsDUyJzI5LjAiUyA1OcKwMDEnMjUuNCJX!5e0!3m2!1ses-419!2sar!4v1773343895058!5m2!1ses-419!2sar" width="100%" height="300" style="border: 1px solid #333; border-radius: 12px; box-shadow: 0 0 15px rgba(0, 255, 0, 0.1);" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe></div>"""
+    components.html(mapa_html, height=340)
+
+    # Divisor
+    st.divider()
+
+    # Galería
+    st.markdown("<h3>📸 Galería de Canchas</h3>", unsafe_allow_html=True)
+
+    # Helper para estilo de imagen
+    def img_card(path, caption):
+        st.markdown("<div style='background-color: #1A1A1A; border: 1px solid #333; border-radius: 10px; padding: 10px;'>", unsafe_allow_html=True)
+        
+        # Optimización: Usamos load_local_image (con @st.cache_data) en lugar de leer directo del path
+        img = load_local_image(path)
+        
+        if img:
+            st.image(img, caption=caption, use_container_width=True)
+        else:
+            st.warning(f"Imagen no encontrada: {path}")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # Fila 1
+    col1, col2, col3 = st.columns(3)
+    with col1: img_card("images/cancha1.jpg", "Cancha 1")
+    with col2: img_card("images/cancha2.jpg", "Cancha 2")
+    with col3: img_card("images/cancha3.jpg", "Cancha 3")
+
+    st.write("") # Separador vertical
+
+    # Fila 2
+    col4, col5, col_vacia = st.columns(3)
+    with col4: img_card("images/cancha4.jpg", "Cancha 4")
+    with col5: img_card("images/cancha5.jpg", "Cancha 5")
+    with col_vacia: st.write("")
+
 def get_inscripcion_by_pareja(pareja_str):
     # Busca en inscripciones la pareja que coincida con el string "J1 - J2"
     df = get_data("SELECT * FROM inscripciones")
@@ -1799,18 +1865,34 @@ def formulario_inscripcion_pareja(torneo_id, cat_torneo):
             st.subheader("👥 Paso 1: Jugadores")
             st.info(f"Categoría: **{cat_torneo}**")
             
+            is_admin = st.session_state.get('es_admin', False)
+            
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("**Jugador 1**")
-                nombre_j1 = st.text_input("Nombre Completo", key="f_nombre_j1")
-                dni_j1 = st.text_input("DNI", key="f_dni_j1", help="Sin puntos")
-                tel_j1 = st.text_input("Teléfono", key="f_tel_j1")
+                if is_admin:
+                    n1 = st.text_input("Nombre", key="adm_n_j1")
+                    a1 = st.text_input("Apellido", key="adm_a_j1")
+                    nombre_j1 = f"{n1} {a1}".strip()
+                    tel_j1 = st.text_input("Celular", key="f_tel_j1")
+                    dni_j1 = f"ADMIN-{tel_j1}" if tel_j1 else ""
+                else:
+                    nombre_j1 = st.text_input("Nombre Completo", key="f_nombre_j1")
+                    dni_j1 = st.text_input("DNI", key="f_dni_j1", help="Sin puntos")
+                    tel_j1 = st.text_input("Teléfono", key="f_tel_j1")
             
             with c2:
                 st.markdown("**Jugador 2**")
-                nombre_j2 = st.text_input("Nombre Completo", key="f_nombre_j2")
-                dni_j2 = st.text_input("DNI", key="f_dni_j2", help="Sin puntos")
-                tel_j2 = st.text_input("Teléfono", key="f_tel_j2")
+                if is_admin:
+                    n2 = st.text_input("Nombre", key="adm_n_j2")
+                    a2 = st.text_input("Apellido", key="adm_a_j2")
+                    nombre_j2 = f"{n2} {a2}".strip()
+                    tel_j2 = st.text_input("Celular", key="f_tel_j2")
+                    dni_j2 = f"ADMIN-{tel_j2}" if tel_j2 else ""
+                else:
+                    nombre_j2 = st.text_input("Nombre Completo", key="f_nombre_j2")
+                    dni_j2 = st.text_input("DNI", key="f_dni_j2", help="Sin puntos")
+                    tel_j2 = st.text_input("Teléfono", key="f_tel_j2")
 
             st.write("")
             if st.button("Siguiente ➡️", type="primary", use_container_width=True):
@@ -1905,13 +1987,22 @@ def generar_grafico_timeline(torneo_id):
             end = start + timedelta(hours=1, minutes=15)
             
             # Etiqueta compacta para móviles
-            p1_short = row['pareja1'].split(' ')[0] if pd.notna(row['pareja1']) and row['pareja1'] else "?"
-            p2_short = row['pareja2'].split(' ')[0] if pd.notna(row['pareja2']) and row['pareja2'] else "?"
-            label = f"{row['instancia'][:3]}. {p1_short} vs {p2_short}"
+            # Limpiamos prefijos de zona si existen (ej: "1A - ") para el gráfico
+            p1_clean = row['pareja1'].split(' - ')[-1] if ' - ' in str(row['pareja1']) else row['pareja1']
+            p2_clean = row['pareja2'].split(' - ')[-1] if ' - ' in str(row['pareja2']) else row['pareja2']
+            
+            # Intentar obtener apellidos cortos
+            p1_short = p1_clean.split(' ')[0] if pd.notna(p1_clean) and p1_clean else "?"
+            p2_short = p2_clean.split(' ')[0] if pd.notna(p2_clean) and p2_clean else "?"
+            
+            # Etiqueta Completa para dentro de la barra
+            label = f"{p1_short} vs {p2_short}"
+            # Etiqueta Detallada para Hover
+            hover_lbl = f"Instancia: {row['instancia']}<br>{p1_clean} vs {p2_clean}"
             
             cancha = row.get('cancha') or "Cancha Central"
             
-            data.append(dict(Cancha=cancha, Inicio=start, Fin=end, Partido=label))
+            data.append(dict(Cancha=cancha, Inicio=start, Fin=end, Partido=label, Detalle=hover_lbl))
         except (ValueError, TypeError):
             continue
             
@@ -1919,7 +2010,7 @@ def generar_grafico_timeline(torneo_id):
     df_plot = pd.DataFrame(data)
     
     # 3. Crear Gráfico Timeline
-    fig = px.timeline(df_plot, x_start="Inicio", x_end="Fin", y="Cancha", text="Partido", color="Cancha")
+    fig = px.timeline(df_plot, x_start="Inicio", x_end="Fin", y="Cancha", text="Partido", color="Cancha", hover_name="Detalle")
     
     # 4. Estilizado dinámico y adaptable a tema
     num_canchas = len(df_plot['Cancha'].unique())
@@ -1928,7 +2019,8 @@ def generar_grafico_timeline(torneo_id):
     fig.update_layout(
         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
         showlegend=False, height=height, margin=dict(l=10, r=10, t=30, b=10),
-        xaxis=dict(showgrid=True, tickformat="%H:%M", side="top", title=None),
+        # Habilitar ZOOM y PAN en el eje X (Time), fijo en Y
+        xaxis=dict(showgrid=True, tickformat="%H:%M", side="top", title=None, fixedrange=False),
         yaxis=dict(title=None, autorange="reversed")
     )
     fig.update_traces(textposition="inside", insidetextanchor="middle", textfont_size=12)
@@ -2447,174 +2539,7 @@ def show_torneos_eventos_content():
             # 5. LLAVES (Bracket)
             with tab_llaves:
                 st.markdown("<div class='zona-header'>CUADRO FINAL</div>", unsafe_allow_html=True)
-                
-                df_bracket = cargar_datos("SELECT * FROM partidos WHERE torneo_id = :torneo_id AND bracket_pos IS NOT NULL ORDER BY bracket_pos", params={"torneo_id": torneo_id})
-                
-                if df_bracket is None or df_bracket.empty:
-                    st.info("El cuadro de llaves aún no ha sido generado.")
-                else:
-                    # Convertir DataFrame a Diccionario indexado por bracket_pos para acceso rápido
-                    matches_db = df_bracket.set_index('bracket_pos').to_dict('index')
-
-                    # Función auxiliar para generar el HTML de un partido específico
-                    def get_match_html(pos):
-                        row = matches_db.get(pos, {})
-                        p1 = row.get('pareja1', 'TBD') or 'TBD'
-                        p2 = row.get('pareja2', 'TBD') or 'TBD'
-                        ganador = row.get('ganador')
-                        
-                        # Formatear Sets (ej: separar "6-4" en "6" para P1 y "4" para P2)
-                        def fmt_sets(r, is_p1):
-                            scores = []
-                            for k in ['set1', 'set2', 'set3']:
-                                val = r.get(k)
-                                if val and '-' in str(val):
-                                    try:
-                                        parts = str(val).split('-')
-                                        scores.append(parts[0] if is_p1 else parts[1])
-                                    except: pass
-                            return " ".join(scores)
-
-                        s1_str = fmt_sets(row, True)
-                        s2_str = fmt_sets(row, False)
-                        
-                        # Asignar clase 'winner' si corresponde
-                        cls_p1 = "team winner" if ganador and ganador == p1 and p1 != 'TBD' else "team"
-                        cls_p2 = "team winner" if ganador and ganador == p2 and p2 != 'TBD' else "team"
-                        
-                        return f"""
-                        <div class="match">
-                            <div class="{cls_p1}"><span>{p1}</span> <span class="score">{s1_str}</span></div>
-                            <div class="{cls_p2}"><span>{p2}</span> <span class="score">{s2_str}</span></div>
-                        </div>
-                        """
-
-                    # Obtener Campeón (Posición 15 es la Final)
-                    final_row = matches_db.get(15, {})
-                    campeon = final_row.get('ganador', '?') if final_row.get('estado_partido') == 'Finalizado' else "?"
-
-                    # Inyectar datos en tu plantilla HTML (usando f-strings y doble llave {{ }} para el CSS)
-                    html_code = f"""
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                    <style>
-                        body {{
-                            background-color: transparent;
-                            color: white;
-                            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                            margin: 0;
-                            padding: 0;
-                        }}
-                        .bracket-wrapper {{
-                            display: flex;
-                            flex-direction: row;
-                            overflow-x: auto;
-                            padding: 20px;
-                            gap: 40px;
-                        }}
-                        .round {{
-                            display: flex;
-                            flex-direction: column;
-                            justify-content: space-around;
-                            min-width: 220px;
-                        }}
-                        .round-title {{
-                            text-align: center;
-                            color: #888;
-                            font-size: 14px;
-                            margin-bottom: 20px;
-                            text-transform: uppercase;
-                            letter-spacing: 1px;
-                        }}
-                        .match {{
-                            background-color: #1A1A1A;
-                            border: 1px solid #333;
-                            border-radius: 6px;
-                            margin: 15px 0;
-                            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-                            position: relative;
-                        }}
-                        .team {{
-                            display: flex;
-                            justify-content: space-between;
-                            padding: 10px 15px;
-                            border-bottom: 1px solid #222;
-                            font-size: 14px;
-                        }}
-                        .team:last-child {{
-                            border-bottom: none;
-                        }}
-                        .winner {{
-                            color: #00FF00;
-                            font-weight: bold;
-                            background-color: rgba(0, 255, 0, 0.05);
-                        }}
-                        .score {{
-                            font-weight: bold;
-                            color: #aaa;
-                            letter-spacing: 2px;
-                        }}
-                        .winner .score {{
-                            color: #00FF00;
-                        }}
-                        .round:not(:last-child) .match::after {{
-                            content: '';
-                            position: absolute;
-                            right: -20px;
-                            top: 50%;
-                            width: 20px;
-                            border-top: 2px solid #444;
-                        }}
-                        .campeon-card {{
-                            text-align: center;
-                            padding: 20px;
-                            border: 2px solid #00FF00;
-                            box-shadow: 0 0 15px rgba(0, 255, 0, 0.2);
-                        }}
-                        ::-webkit-scrollbar {{ height: 8px; }}
-                        ::-webkit-scrollbar-track {{ background: #111; }}
-                        ::-webkit-scrollbar-thumb {{ background: #333; border-radius: 4px; }}
-                        ::-webkit-scrollbar-thumb:hover {{ background: #00FF00; }}
-                    </style>
-                    </head>
-                    <body>
-
-                    <div class="bracket-wrapper">
-                        <div class="round">
-                            <div class="round-title">Cuartos de Final</div>
-                            {get_match_html(9)}
-                            {get_match_html(10)}
-                            {get_match_html(11)}
-                            {get_match_html(12)}
-                        </div>
-
-                        <div class="round">
-                            <div class="round-title">Semifinales</div>
-                            {get_match_html(13)}
-                            {get_match_html(14)}
-                        </div>
-
-                        <div class="round">
-                            <div class="round-title">Final</div>
-                            {get_match_html(15)}
-                        </div>
-                        
-                        <div class="round">
-                            <div class="round-title">¡Campeones!</div>
-                            <div class="match campeon-card winner">
-                                <span style="font-size: 24px;">🏆</span><br>
-                                <span style="font-size: 18px; margin-top: 10px; display: inline-block;">{campeon}</span>
-                            </div>
-                        </div>
-
-                    </div>
-
-                    </body>
-                    </html>
-                    """
-                    
-                    components.html(html_code, height=600, scrolling=True)
+                mostrar_cuadro_playoff(torneo_id)
 
 @st.fragment
 def show_ranking_content():
@@ -2904,7 +2829,7 @@ st.sidebar.markdown("""
 """, unsafe_allow_html=True)
 
 # --- NAVEGACIÓN PRINCIPAL ---
-menu = ["🏆 Inicio", "📅 Fixture y Horarios", "📊 Posiciones", "📈 Ranking", "👥 Jugadores"]
+menu = ["🏆 Inicio", "📅 Fixture y Horarios", "📊 Posiciones", "📈 Ranking", "👥 Jugadores","📍 Sede"]
 
 if st.session_state.get('usuario_logueado'):
     menu.append("🏠 Mi Panel")
@@ -2972,42 +2897,27 @@ if choice == "🏠 Mi Panel":
         st.info("Función próximamente disponible")
 
 elif choice == "🏆 Inicio":
-    # 1. Animación y Banner Principal
-    c_anim, c_ban = st.columns([1, 4])
-    with c_anim:
-        lottie_player = load_lottieurl(URL_LOTTIE_PLAYER)
-        if lottie_player:
-            st_lottie(lottie_player, height=130, key="home_anim_main")
-    
-    with c_ban:
-        st.markdown("""
-            <div style="
-                background-color: #39FF14;
-                color: black;
-                padding: 15px;
-                border-radius: 12px;
-                text-align: center;
-                font-family: 'Segoe UI', sans-serif;
-                font-weight: 900;
-                font-size: 2.5rem;
-                text-transform: uppercase;
-                letter-spacing: 2px;
-                box-shadow: 0 0 25px rgba(57, 255, 20, 0.6);
-                margin-top: 15px;
-            ">
-                ESTÁS EN EL RINCÓN
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # Animación de Padel debajo del banner
-        lottie_match = load_lottieurl(URL_LOTTIE_MATCH)
-        if lottie_match:
-            st_lottie(lottie_match, height=200, key="home_anim_match")
-        
-    st.write("")
-    st.write("")
+    # 1. TÍTULO PRINCIPAL CENTRADO
+    st.markdown("""
+        <div style="
+            background-color: #39FF14;
+            color: black;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            font-family: 'Segoe UI', sans-serif;
+            font-weight: 900;
+            font-size: 2.2rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            box-shadow: 0 0 20px rgba(57, 255, 20, 0.5);
+            margin-bottom: 25px;
+        ">
+            ESTÁS EN EL RINCÓN
+        </div>
+    """, unsafe_allow_html=True)
 
-    # 2. Card de Torneo Activo
+    # 2. LOGICA TORNEO ACTIVO
     # Priorizamos 'En Juego' para el destacado
     df_active = cargar_datos("SELECT * FROM torneos WHERE estado = 'En Juego' ORDER BY id DESC LIMIT 1")
     if df_active is None or df_active.empty:
@@ -3023,61 +2933,56 @@ elif choice == "🏆 Inicio":
             if os.path.exists(df_afiche.iloc[0]['afiche']):
                 afiche_path = df_afiche.iloc[0]['afiche']
 
-        # DISEÑO A: CON IMAGEN
-        if afiche_path:
-            col_img, col_info = st.columns([1, 2])
-            with col_img:
+        # LAYOUT 2 COLUMNAS (1.2 - 1)
+        c_izq, c_der = st.columns([1.2, 1], gap="large")
+
+        with c_izq:
+            if afiche_path:
                 st.image(afiche_path, use_container_width=True)
-            with col_info:
+            else:
+                # Fallback elegante si no hay afiche
                 st.markdown(f"""
                 <div style="
-                    background: linear-gradient(90deg, #050505 0%, #000 100%);
-                    border-left: 5px solid #00FF00;
-                    padding: 25px;
-                    border-radius: 0 15px 15px 0;
-                    height: 100%;
+                    height: 400px;
+                    background: linear-gradient(135deg, #003300 0%, #000000 100%);
+                    border: 2px solid #00FF00;
+                    border-radius: 15px;
                     display: flex;
-                    flex-direction: column;
+                    align-items: center;
                     justify-content: center;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+                    flex-direction: column;
                 ">
-                    <h2 style="color: #00FF00; margin: 0; text-transform: uppercase; font-size: 2.2rem; text-shadow: 0 0 15px rgba(0,255,0,0.5); font-weight: 900;">{t_act['nombre']}</h2>
-                    <h3 style="color: white; margin: 10px 0;">Categoría <span style="color: #00FF00;">{t_act['categoria']}</span></h3>
-                    <p style="color: #ccc; font-size: 1.1rem; margin-top: 5px;">📅 {t_act['fecha']} | <span style="background-color: #00FF00; color: black; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;">{t_act['estado']}</span></p>
+                     <h1 style="font-size:5rem;">🎾</h1>
+                     <h3 style="color:#00FF00;">{t_act['nombre']}</h3>
                 </div>
                 """, unsafe_allow_html=True)
-                
-                st.write("")
-                if st.button("📅 Ir al Torneo", key="btn_go_home_img", type="primary", use_container_width=True, on_click=lambda: st.session_state.update(id_torneo=int(t_act['id']))):
-                    st.toast("Torneo Seleccionado.", icon="🎾")
-        
-        # DISEÑO B: SIN IMAGEN (DEGRADADO VERDE ELEGANTE)
-        else:
+
+        with c_der:
             st.markdown(f"""
             <div style="
-                background: linear-gradient(135deg, #003300 0%, #000000 100%);
-                border: 2px solid #00FF00;
-                border-radius: 15px;
-                padding: 40px;
-                text-align: center;
-                box-shadow: 0 0 30px rgba(0, 255, 0, 0.2);
-                margin-bottom: 30px;
-                position: relative;
-                overflow: hidden;
+                background: linear-gradient(145deg, #050505, #111);
+                border-left: 5px solid #00FF00;
+                padding: 25px;
+                border-radius: 12px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+                margin-bottom: 20px;
             ">
-                <div style="position: absolute; top: -20px; right: -20px; background: #00FF00; width: 100px; height: 100px; filter: blur(60px); opacity: 0.5;"></div>
-                <div style="position: absolute; bottom: -20px; left: -20px; background: #00FF00; width: 100px; height: 100px; filter: blur(60px); opacity: 0.5;"></div>
-                
-                <h1 style="color: #00FF00; margin: 10px 0; font-size: 3.5rem; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 20px rgba(0, 255, 0, 0.6);">{t_act['nombre']}</h1>
-                <h2 style="color: white; margin: 10px 0; font-weight: 300;">Categoría <span style="color: #00FF00; font-weight: bold; text-decoration: underline decoration-color: #00FF00;">{t_act['categoria']}</span></h2>
-                <p style="color: #ddd; font-size: 1.2rem; margin-top: 15px; font-style: italic;">📅 {t_act['fecha']} • <strong>{t_act['estado']}</strong></p>
+                <h2 style="color: #00FF00; margin: 0; text-transform: uppercase; font-size: 2rem; text-shadow: 0 0 10px rgba(0,255,0,0.3); font-weight: 900;">{t_act['nombre']}</h2>
+                <h3 style="color: white; margin: 15px 0 10px 0;">Categoría <span style="color: #00FF00;">{t_act['categoria']}</span></h3>
+                <p style="color: #ccc; font-size: 1.1rem; margin: 0;">📅 {t_act['fecha']}</p>
+                <div style="margin-top: 15px;">
+                    <span style="background-color: #00FF00; color: black; padding: 4px 10px; border-radius: 4px; font-size: 0.9rem; font-weight: bold;">{t_act['estado']}</span>
+                </div>
             </div>
             """, unsafe_allow_html=True)
             
-            c_center_btn = st.columns([1, 2, 1])
-            with c_center_btn[1]:
-                if st.button("📅 Ver Detalles del Torneo", key="btn_go_home_grad", type="primary", use_container_width=True, on_click=lambda: st.session_state.update(id_torneo=int(t_act['id']))):
-                    st.toast("Torneo Seleccionado. Navega a 'Fixture y Horarios'.", icon="👉")
+            # Botón de Acción
+            if st.button("📅 IR AL TORNEO", key="btn_home_main", type="primary", use_container_width=True):
+                st.session_state.id_torneo = int(t_act['id'])
+                st.toast("Navegando al torneo...", icon="🚀")
+            
+            # Consejo Motivacional (Justo debajo del botón)
+            mostrar_consejo_padel()
     
     # 3. Próximos Torneos (Columnas)
     st.subheader("🗓️ Próximos Eventos")
@@ -3112,6 +3017,9 @@ elif choice == "📅 Fixture y Horarios":
     tid = st.session_state.get('id_torneo')
     if tid:
         st.header("📅 Cronograma de Partidos")
+        
+        # NUEVO: Panel de Estadísticas
+        mostrar_estadisticas_torneo(tid)
         
         # 1. Gráfico Visual (Timeline)
         st.subheader("Horarios Visuales")
@@ -3311,7 +3219,11 @@ elif choice == "📊 Posiciones":
         st.header("📊 Tablas de Posiciones")
         
         # Cargar zonas persistentes
-        df_zonas = cargar_datos("SELECT * FROM zonas_posiciones WHERE torneo_id = :id ORDER BY nombre_zona, pts DESC, ds DESC", {"id": tid})
+        # TAREA: Filtrado Dinámico y Ordenamiento (Pts DESC, DS DESC)
+        df_zonas = cargar_datos(
+            "SELECT * FROM zonas_posiciones WHERE torneo_id = :id ORDER BY nombre_zona ASC, pts DESC, ds DESC, dg DESC", 
+            {"id": tid}
+        )
         
         # TAREA 3: Blindaje NoneType
         if df_zonas is None:
@@ -3321,15 +3233,123 @@ elif choice == "📊 Posiciones":
         if df_zonas.empty:
             st.info("Las zonas no han sido sorteadas para este torneo.")
         else:
+            # TAREA: Resaltado de Clasificados (Estética HTML)
+            st.markdown("""
+            <style>
+                .pos-card {
+                    background-color: #1A1A1A;
+                    border: 1px solid #333;
+                    border-radius: 12px;
+                    padding: 15px;
+                    margin-bottom: 20px;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                }
+                .pos-zone-header {
+                    color: #00FF00;
+                    font-family: 'Segoe UI', sans-serif;
+                    font-size: 1.1rem;
+                    font-weight: 800;
+                    text-transform: uppercase;
+                    margin-bottom: 12px;
+                    border-bottom: 2px solid #333;
+                    padding-bottom: 5px;
+                    display: flex;
+                    justify-content: space-between;
+                }
+                .pos-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-family: 'Segoe UI', sans-serif;
+                    font-size: 0.85rem;
+                    color: #E0E0E0;
+                }
+                .pos-table th {
+                    text-align: center;
+                    color: #888;
+                    font-weight: 600;
+                    padding: 8px 4px;
+                    border-bottom: 1px solid #444;
+                    font-size: 0.75rem;
+                    text-transform: uppercase;
+                }
+                .pos-table td {
+                    text-align: center;
+                    padding: 10px 4px;
+                    border-bottom: 1px solid #222;
+                }
+                .col-left {
+                    text-align: left !important;
+                    width: 50%;
+                }
+                /* Clasificados Top 2 */
+                .qualified-row {
+                    background-color: rgba(144, 238, 144, 0.05); /* Fondo verde sutil */
+                }
+                .qualified-name {
+                    color: #90EE90; /* Verde claro */
+                    font-weight: bold;
+                    text-shadow: 0 0 5px rgba(144, 238, 144, 0.2);
+                }
+                .pos-points {
+                    color: white;
+                    font-weight: 900;
+                    font-size: 1rem;
+                }
+            </style>
+            """, unsafe_allow_html=True)
+
             grupos = df_zonas.groupby('nombre_zona')
             cols = st.columns(2)
             idx = 0
             for nombre, df_grupo in grupos:
+                # Reordenamiento explícito en Pandas para asegurar consistencia
+                df_grupo = df_grupo.sort_values(by=['pts', 'ds', 'dg', 'pg'], ascending=[False, False, False, False])
+                
                 with cols[idx % 2]:
-                    st.markdown(f"#### {nombre}")
-                    df_show = df_grupo[['pareja', 'pts', 'pj', 'pg', 'pp', 'ds']]
-                    df_show.columns = ['Pareja', 'Pts', 'PJ', 'G', 'P', 'D.Sets']
-                    st.dataframe(df_show, hide_index=True, use_container_width=True)
+                    html_table = f"""
+                    <div class="pos-card">
+                        <div class="pos-zone-header">
+                            <span>{nombre}</span>
+                            <span>🏆</span>
+                        </div>
+                        <table class="pos-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-left">PAREJA</th>
+                                    <th>PTS</th>
+                                    <th>PJ</th>
+                                    <th>DS</th>
+                                    <th>DG</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    """
+                    
+                    for i, row in enumerate(df_grupo.itertuples()):
+                        # Lógica de clasificación (Top 2)
+                        is_qualified = i < 2
+                        row_class = "qualified-row" if is_qualified else ""
+                        name_class = "qualified-name" if is_qualified else ""
+                        check = "✅" if is_qualified else ""
+                        
+                        html_table += f"""
+                            <tr class="{row_class}">
+                                <td class="col-left {name_class}">
+                                    {row.pareja} <span style="font-size:0.7rem;">{check}</span>
+                                </td>
+                                <td class="pos-points">{row.pts}</td>
+                                <td>{row.pj}</td>
+                                <td>{row.ds}</td>
+                                <td style="color:#666;">{row.dg}</td>
+                            </tr>
+                        """
+                    
+                    html_table += """
+                            </tbody>
+                        </table>
+                    </div>
+                    """
+                    st.markdown(html_table, unsafe_allow_html=True)
                 idx += 1
     else:
         st.warning("Selecciona un torneo para ver posiciones.")
@@ -3616,7 +3636,10 @@ elif choice == "👥 Jugadores":
                     st.markdown(f"<div class='h2h-card'><h3>{p2_sel}</h3><div class='h2h-stat-val'>{p2_wins_h2h}</div><div class='h2h-stat-label'>Victorias Directas</div><hr style='border-color:#333'><div class='h2h-stat-val'>{t2}</div><div class='h2h-stat-label'>Títulos</div><div class='h2h-stat-val'>{eff2:.1f}%</div><div class='h2h-stat-label'>Efectividad</div></div>", unsafe_allow_html=True)
 
         else:
-            st.info("No hay suficientes jugadores para comparar.")
+            st.info("No hay suficientes jugadores para comparar.")       
+
+elif choice == "📍 Sede":
+    mostrar_seccion_sede()
 
 elif choice == "⚙️ Admin":
     if not st.session_state.es_admin:
