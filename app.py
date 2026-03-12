@@ -2337,8 +2337,9 @@ def show_torneos_eventos_content():
                 import textwrap
                 st.markdown("<div class='zona-header'>FASE DE GRUPOS</div>", unsafe_allow_html=True)
                 
-                # Consulta optimizada
-                df_zonas = cargar_datos("SELECT * FROM zonas_posiciones WHERE torneo_id = :torneo_id ORDER BY nombre_zona, pts DESC, ds DESC, dg DESC, pg DESC", params={"torneo_id": torneo_id})
+                # Consulta optimizada con ordenamiento
+                query_zonas = "SELECT * FROM zonas_posiciones WHERE torneo_id = :torneo_id ORDER BY nombre_zona, pts DESC, ds DESC, dg DESC, pg DESC"
+                df_zonas = cargar_datos(query_zonas, params={"torneo_id": torneo_id})
                 
                 if df_zonas is None or df_zonas.empty:
                     st.warning("Aún no se han sorteado las zonas para este torneo.")
@@ -2376,55 +2377,39 @@ def show_torneos_eventos_content():
                     """, unsafe_allow_html=True)
 
                     grupos = df_zonas.groupby('nombre_zona')
-                    cols = st.columns(2)
+                    cols_zonas = st.columns(2)
                     
                     for i, (nombre_zona, df_grupo) in enumerate(grupos):
-                        with cols[i % 2]:
-                            # Contenedor Principal
+                        with cols_zonas[i % 2]:
+                            # Abrimos el contenedor de la zona
                             st.markdown(f"<div class='pc-zone-container'><div class='pc-zone-title'>🏆 {nombre_zona}</div>", unsafe_allow_html=True)
 
+                            # Construcción de las filas sin indentación inicial
                             table_rows = []
                             for r_idx, row in enumerate(df_grupo.itertuples()):
-                                # Resaltar top 2 (Clasificados)
-                                row_class = "pc-row-qualified" if r_idx < 2 else ""
+                                r_class = "pc-row-qualified" if r_idx < 2 else ""
                                 badge = "<span style='color:#39FF14; font-size:0.7rem;'>✅</span>" if r_idx < 2 else ""
                                 
-                                # Usamos textwrap.dedent para cada fila
-                                row_html = textwrap.dedent(f"""
-                                    <tr class="{row_class}">
-                                        <td class="col-left">
-                                            <span class="pc-couple-name">{row.pareja} {badge}</span>
-                                        </td>
-                                        <td>{row.pj}</td>
-                                        <td>{row.pg}</td>
-                                        <td>{row.pp}</td>
-                                        <td>{row.sf}</td>
-                                        <td>{row.sc}</td>
-                                        <td>{row.dg}</td>
-                                        <td class="col-pts">{row.pts}</td>
-                                    </tr>
-                                """).strip()
+                                row_html = f'<tr class="{r_class}">'
+                                row_html += f'<td class="col-left"><span class="pc-couple-name">{row.pareja} {badge}</span></td>'
+                                row_html += f'<td>{row.pj}</td><td>{row.pg}</td><td>{row.pp}</td>'
+                                row_html += f'<td>{row.sf}</td><td>{row.sc}</td><td>{row.dg}</td>'
+                                row_html += f'<td class="col-pts">{row.pts}</td></tr>'
                                 table_rows.append(row_html)
                             
-                            # La tabla completa también con dedent para asegurar que Streamlit no vea espacios
-                            full_html_table = textwrap.dedent(f"""
-                                <table class="pc-table">
-                                    <thead>
-                                        <tr>
-                                            <th class="col-left">PAREJA</th>
-                                            <th>PJ</th><th>PG</th><th>PP</th>
-                                            <th>SF</th><th>SC</th><th>DF</th>
-                                            <th>PTS</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {"".join(table_rows)}
-                                    </tbody>
-                                </table>
-                            """).strip()
+                            # Construcción de la tabla completa
+                            html_table = '<table class="pc-table"><thead><tr>'
+                            html_table += '<th class="col-left">PAREJA</th><th>PJ</th><th>PG</th><th>PP</th>'
+                            html_table += '<th>SF</th><th>SC</th><th>DF</th><th>PTS</th>'
+                            html_table += '</tr></thead><tbody>'
+                            html_table += "".join(table_rows)
+                            html_table += '</tbody></table>'
                             
-                            st.markdown(full_html_table, unsafe_allow_html=True)
-                            st.markdown("</div>", unsafe_allow_html=True) # Cierra pc-zone-container
+                            # Renderizado limpio
+                            st.markdown(html_table, unsafe_allow_html=True)
+                            
+                            # Cerramos el contenedor de la zona
+                            st.markdown("</div>", unsafe_allow_html=True)
 
                             # 2. TARJETAS DE PARTIDOS
                             st.markdown("<div style='margin-top:15px; font-size:0.75rem; color:#666; font-weight:bold; letter-spacing:1px; border-bottom:1px solid #222; padding-bottom:5px;'>PARTIDOS</div>", unsafe_allow_html=True)
