@@ -2618,7 +2618,6 @@ if df_torneos_sb is not None and not df_torneos_sb.empty:
         options=lista_ids, 
         format_func=lambda x: opts_sb.get(x, f"ID {x}"), 
         index=idx_sel,
-        key="id_torneo_selector",
         key="selector_torneo",
         on_change=update_torneo
     )
