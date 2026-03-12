@@ -2334,74 +2334,34 @@ def show_torneos_eventos_content():
 
             # 3. CLASIFICACIÓN (ZONAS)
             with tab_clasificacion:
-                import time
                 st.markdown("<div class='zona-header'>FASE DE GRUPOS</div>", unsafe_allow_html=True)
                 
-                # Consulta con parámetros seguros
                 df_zonas = cargar_datos("SELECT * FROM zonas_posiciones WHERE torneo_id = :torneo_id ORDER BY nombre_zona, pts DESC, ds DESC, dg DESC, pg DESC", params={"torneo_id": torneo_id})
-                df_partidos_zona = cargar_datos("SELECT * FROM partidos WHERE torneo_id = :torneo_id AND instancia = 'Zona'", params={"torneo_id": torneo_id})
                 
                 if df_zonas is None or df_zonas.empty:
-                    st.warning("Aún no se han sorteado las zonas para este torneo.")
+                    st.warning("Aún no se han sorteado las zonas.")
                 else:
-                    # Estilos CSS en una sola línea (Minificado)
-                    css_pc = "<style>.pc-zone-container{background-color:#050505;border:1px solid #1A1A1A;border-top:3px solid #39FF14;border-radius:12px;padding:15px;margin-bottom:30px;box-shadow:0 10px 20px rgba(0,0,0,0.5)}.pc-zone-title{color:#39FF14;font-size:1.1rem;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;border-bottom:1px solid #333;padding-bottom:5px}.pc-table{width:100%;border-collapse:collapse;font-size:0.8rem;color:#EEE}.pc-table th{color:#AAA;font-weight:600;text-align:center;padding:6px 2px;border-bottom:1px solid #333;font-size:0.7rem}.pc-table td{text-align:center;padding:8px 2px;border-bottom:1px solid #111}.pc-table .col-left{text-align:left;width:45%;padding-left:5px}.pc-table .col-pts{color:#39FF14;font-weight:900;font-size:0.9rem}.pc-row-qualified{background-color:rgba(57,255,20,0.05)!important}.pc-couple-name{display:block;font-weight:700;font-size:0.85rem;color:#FFF}.pc-match-card{background-color:#0E0E0E;border:1px solid #333;border-radius:6px;padding:10px;margin-top:8px;display:flex;justify-content:space-between;align-items:center}.pc-players{display:flex;flex-direction:column;gap:5px}.pc-player-row{display:flex;align-items:center;gap:6px;color:#CCC;font-size:0.8rem;font-weight:500}.pc-score-box{background-color:#000;border:1px solid #222;color:#FFF;padding:4px 8px;border-radius:6px;font-family:monospace;font-weight:bold;font-size:0.9rem;text-align:center}.pc-score-finished{color:#39FF14;border-color:#39FF14}.pc-info-badge{font-size:0.65rem;color:#666;display:flex;flex-direction:column;align-items:end}</style>"
-                    st.markdown(css_pc, unsafe_allow_html=True)
+                    # CSS compacto
+                    st.markdown("<style>.pc-zone-container{background-color:#050505;border:1px solid #1A1A1A;border-top:3px solid #39FF14;border-radius:12px;padding:15px;margin-bottom:30px}.pc-zone-title{color:#39FF14;font-size:1.1rem;font-weight:800;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid #333;padding-bottom:5px}.pc-table{width:100%;border-collapse:collapse;font-size:0.8rem;color:#EEE}.pc-table th{color:#AAA;text-align:center;padding:6px 2px;border-bottom:1px solid #333}.pc-table td{text-align:center;padding:8px 2px;border-bottom:1px solid #111}.pc-table .col-left{text-align:left;width:45%;padding-left:5px}.pc-table .col-pts{color:#39FF14;font-weight:900}.pc-row-qualified{background-color:rgba(57,255,20,0.05)!important}.pc-couple-name{font-weight:700;color:#FFF}</style>", unsafe_allow_html=True)
 
-                    grupos = df_zonas.groupby('nombre_zona')
-                    cols_z = st.columns(2)
-                    
-                    for i, (nombre_zona, df_grupo) in enumerate(grupos):
-                        with cols_z[i % 2]:
-                            # CONSTRUCCIÓN BLINDADA (SIN SALTOS DE LÍNEA)
-                            html_z = f"<div class='pc-zone-container'><div class='pc-zone-title'>🏆 {nombre_zona}</div>"
-                            html_z += '<table class="pc-table"><thead><tr><th class="col-left">PAREJA</th><th>PJ</th><th>PG</th><th>PP</th><th>SF</th><th>SC</th><th>DF</th><th>PTS</th></tr></thead><tbody>'
+                    for nombre_zona, df_grupo in df_zonas.groupby('nombre_zona'):
+                        z_html = f"<div class='pc-zone-container'><div class='pc-zone-title'>🏆 {nombre_zona}</div>"
+                        z_html += '<table class="pc-table"><thead><tr><th class="col-left">PAREJA</th><th>PJ</th><th>PG</th><th>PP</th><th>SF</th><th>SC</th><th>DF</th><th>PTS</th></tr></thead><tbody>'
+                        
+                        for r_idx, row in enumerate(df_grupo.itertuples()):
+                            r_cl = "pc-row-qualified" if r_idx < 2 else ""
+                            bdg = "<span style='color:#39FF14;'>✅</span>" if r_idx < 2 else ""
                             
-                            for r_idx, row in enumerate(df_grupo.itertuples()):
-                                r_cl = "pc-row-qualified" if r_idx < 2 else ""
-                                bdg = "<span style='color:#39FF14;font-size:0.7rem'>✅</span>" if r_idx < 2 else ""
-                                fila = f'<tr class="{r_cl}"><td class="col-left"><span class="pc-couple-name">{row.pareja} {bdg}</span></td>'
-                                fila += f'<td>{row.pj}</td><td>{row.pg}</td><td>{row.pp}</td><td>{row.sf}</td><td>{row.sc}</td><td>{row.dg}</td>'
-                                fila += f'<td class="col-pts">{row.pts}</td></tr>'
-                                html_z += fila
-                            
-                            html_z += '</tbody></table></div>'
-                            
-                            # TRUCO FINAL: Eliminamos cualquier posible salto de línea que confunda a Streamlit
-                            html_z = html_z.replace("\n", "").strip()
-                            st.markdown(html_z, unsafe_allow_html=True)
-
-                            # SECCIÓN DE PARTIDOS (También blindada)
-                            st.markdown("<div style='margin-top:15px;font-size:0.75rem;color:#666;font-weight:bold;letter-spacing:1px;border-bottom:1px solid #222;padding-bottom:5px'>PARTIDOS</div>", unsafe_allow_html=True)
-                            
-                            parejas_zona = df_grupo['pareja'].tolist()
-                            matches_z = df_partidos_zona[(df_partidos_zona['pareja1'].isin(parejas_zona)) & (df_partidos_zona['pareja2'].isin(parejas_zona))].sort_values('id')
-                            
-                            if not matches_z.empty:
-                                for _, m in matches_z.iterrows():
-                                    res = m['resultado'] if m['resultado'] else ""
-                                    if res:
-                                        cont = f"<div class='pc-score-box pc-score-finished'>{res}</div>"
-                                    else:
-                                        h = m['horario'].split(' ')[1][:5] if m['horario'] and ' ' in m['horario'] else "A conf."
-                                        d = m['horario'].split(' ')[0][5:] if m['horario'] and ' ' in m['horario'] else ""
-                                        cont = f"<div class='pc-info-badge'><span>📅 {d}</span><span style='color:#39FF14;font-weight:bold'>{h}</span></div>"
-                                    
-                                    card = f'<div class="pc-match-card"><div class="pc-players"><div class="pc-player-row"><span>{m["pareja1"]}</span></div><div class="pc-player-row"><span>{m["pareja2"]}</span></div></div><div>{cont}</div></div>'
-                                    st.markdown(card.replace("\n", ""), unsafe_allow_html=True)
-                                    
-                                    # Formulario Admin
-                                    if st.session_state.get('es_admin', False):
-                                        with st.expander("✍️ Resultado", expanded=False):
-                                            with st.form(key=f"fz_{m['id']}"):
-                                                c1, c2, c3 = st.columns(3)
-                                                s1j1 = c1.number_input("S1 L", 0, 7, key=f"s11_{m['id']}")
-                                                s1j2 = c1.number_input("S1 V", 0, 7, key=f"s12_{m['id']}")
-                                                if st.form_submit_button("💾"):
-                                                    procesar_resultado(m['id'], [s1j1, 0, 0], [s1j2, 0, 0], torneo_id)
-                                                    st.rerun()
-                            else:
-                                st.markdown("<div style='color:#666;font-style:italic;font-size:0.8rem;'>Sin partidos</div>", unsafe_allow_html=True)
+                            # Todo en una sola línea de concatenación
+                            z_html += f'<tr class="{r_cl}"><td class="col-left"><span class="pc-couple-name">{row.pareja} {bdg}</span></td><td>{row.pj}</td><td>{row.pg}</td><td>{row.pp}</td><td>{row.sf}</td><td>{row.sc}</td><td>{row.dg}</td><td class="col-pts">{row.pts}</td></tr>'
+                        
+                        z_html += '</tbody></table></div>'
+                        
+                        # --- OPCIÓN NUCLEAR CONTRA LOS ESPACIOS ---
+                        # Esto aplasta todo el string, quitando cualquier enter o tabulación rebelde
+                        html_aplastado = " ".join(z_html.split())
+                        
+                        st.markdown(html_aplastado, unsafe_allow_html=True)
 
             # 4. FIXTURE (Partidos de Zona)
             with tab_fixture:
