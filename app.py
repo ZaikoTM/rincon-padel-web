@@ -2436,20 +2436,20 @@ def show_torneos_eventos_content():
                                 """)
                             
                             full_html_table = f"""
-                            <table class="pc-table">
-                                <thead>
-                                    <tr>
-                                        <th class="col-left">PAREJA</th>
-                                        <th>PJ</th><th>PG</th><th>PP</th>
-                                        <th>SF</th><th>SC</th><th>DF</th>
-                                        <th>PTS</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {''.join(table_rows)}
-                                </tbody>
-                            </table>
-                            """
+<table class="pc-table">
+    <thead>
+        <tr>
+            <th class="col-left">PAREJA</th>
+            <th>PJ</th><th>PG</th><th>PP</th>
+            <th>SF</th><th>SC</th><th>DF</th>
+            <th>PTS</th>
+        </tr>
+    </thead>
+    <tbody>
+        {''.join(table_rows)}
+    </tbody>
+</table>
+"""
                             st.markdown(full_html_table, unsafe_allow_html=True)
 
                             # 2. TARJETAS DE PARTIDOS
@@ -3325,23 +3325,23 @@ elif choice == "📊 Posiciones":
                 
                 with cols[idx % 2]:
                     html_table = f"""
-                    <div class="pos-card">
-                        <div class="pos-zone-header">
-                            <span>{nombre}</span>
-                            <span>🏆</span>
-                        </div>
-                        <table class="pos-table">
-                            <thead>
-                                <tr>
-                                    <th class="col-left">PAREJA</th>
-                                    <th>PTS</th>
-                                    <th>PJ</th>
-                                    <th>DS</th>
-                                    <th>DG</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                    """
+<div class="pos-card">
+    <div class="pos-zone-header">
+        <span>{nombre}</span>
+        <span>🏆</span>
+    </div>
+    <table class="pos-table">
+        <thead>
+            <tr>
+                <th class="col-left">PAREJA</th>
+                <th>PTS</th>
+                <th>PJ</th>
+                <th>DS</th>
+                <th>DG</th>
+            </tr>
+        </thead>
+        <tbody>
+"""
                     
                     for i, row in enumerate(df_grupo.itertuples()):
                         # Lógica de clasificación (Top 2)
@@ -3351,22 +3351,22 @@ elif choice == "📊 Posiciones":
                         check = "✅" if is_qualified else ""
                         
                         html_table += f"""
-                            <tr class="{row_class}">
-                                <td class="col-left {name_class}">
-                                    {row.pareja} <span style="font-size:0.7rem;">{check}</span>
-                                </td>
-                                <td class="pos-points">{row.pts}</td>
-                                <td>{row.pj}</td>
-                                <td>{row.ds}</td>
-                                <td style="color:#666;">{row.dg}</td>
-                            </tr>
-                        """
+        <tr class="{row_class}">
+            <td class="col-left {name_class}">
+                {row.pareja} <span style="font-size:0.7rem;">{check}</span>
+            </td>
+            <td class="pos-points">{row.pts}</td>
+            <td>{row.pj}</td>
+            <td>{row.ds}</td>
+            <td style="color:#666;">{row.dg}</td>
+        </tr>
+"""
                     
                     html_table += """
-                            </tbody>
-                        </table>
-                    </div>
-                    """
+    </tbody>
+</table>
+</div>
+"""
                     st.markdown(html_table, unsafe_allow_html=True)
                 idx += 1
     else:
