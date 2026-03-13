@@ -1827,28 +1827,39 @@ def validar_nivel(cat_jugador, cat_torneo):
 def registrar_jugador_db(dni, nombre, apellido, celular, categoria, localidad="", password=None):
     try:
         # 1. Verificar si el usuario ya existe por DNI
-        df = cargar_datos("SELECT * FROM jugadores WHERE dni = :dni", {"dni": dni})
+        df = cargar_datos("SELECT id, password FROM jugadores WHERE dni = :dni", {"dni": dni})
         
         if df is not None and not df.empty:
-            # El usuario existe. Verificamos si tiene contraseña (si no, es cuenta creada por admin sin reclamar)
             user_data = df.iloc[0]
             stored_pass = user_data['password']
             
+            # Si el password es nulo o vacío, es una cuenta creada por Admin -> PERMITIR RECLAMO
             if pd.isna(stored_pass) or stored_pass == "":
-                # Lógica de Reclamo de Cuenta (UPDATE)
                 final_pass = password if password else dni
-                run_action("UPDATE jugadores SET password = %(password)s, nombre = %(nombre)s, apellido = %(apellido)s, celular = %(celular)s, categoria_actual = %(categoria)s, localidad = %(localidad)s, estado_cuenta = 'Activa' WHERE dni = %(dni)s",
-                          {"password": hash_password(final_pass), "nombre": nombre, "apellido": apellido, "celular": celular, "categoria": categoria, "localidad": localidad, "dni": dni})
+                
+                # Ejecutamos UPDATE (Reclamo de cuenta)
+                run_action("""
+                    UPDATE jugadores SET 
+                        password = :password, nombre = :nombre, apellido = :apellido, 
+                        celular = :celular, categoria_actual = :categoria, 
+                        localidad = :localidad, estado_cuenta = 'Activa' 
+                    WHERE dni = :dni
+                """, {"password": hash_password(final_pass), "nombre": nombre, "apellido": apellido, 
+                      "celular": celular, "categoria": categoria, "localidad": localidad, "dni": dni})
+                
                 limpiar_cache()
                 return True, "Cuenta reclamada y activada exitosamente."
             else:
-                # Ya tiene password, es un duplicado real
                 return False, "Este DNI ya está registrado. Por favor, inicia sesión."
 
-        # 2. Si no existe, INSERT normal
+        # 2. Si no existe, INSERT normal (Cuenta Nueva)
         final_pass = password if password else dni
-        run_action("INSERT INTO jugadores (dni, celular, password, nombre, apellido, categoria_actual, localidad, estado_cuenta) VALUES (%(dni)s, %(celular)s, %(password)s, %(nombre)s, %(apellido)s, %(categoria_actual)s, %(localidad)s, 'Pendiente')",
-                  {"dni": dni, "celular": celular, "password": hash_password(final_pass), "nombre": nombre, "apellido": apellido, "categoria_actual": categoria, "localidad": localidad})
+        run_action("""
+            INSERT INTO jugadores (dni, celular, password, nombre, apellido, categoria_actual, localidad, estado_cuenta) 
+            VALUES (:dni, :celular, :password, :nombre, :apellido, :categoria, :localidad, 'Pendiente')
+        """, {"dni": dni, "celular": celular, "password": hash_password(final_pass), 
+              "nombre": nombre, "apellido": apellido, "categoria": categoria, "localidad": localidad})
+              
         limpiar_cache()
         return True, "Registro exitoso."
     except Exception as e:
@@ -2853,11 +2864,11 @@ elif choice == "🏆 Inicio":
             """, unsafe_allow_html=True)
             
             # Botón de Acción
-            if st.button("📅 IR AL TORNEO", key="btn_home_main", type="primary", use_container_width=True):
-                st.session_state.id_torneo = int(t_act['id'])
+            def saltar_al_fixture(torneo_id):
+                st.session_state.id_torneo = int(torneo_id)
                 st.session_state.menu_nav = "📅 Fixture y Horarios"
-                st.toast("Cargando Fixture y Horarios...", icon="🚀")
-                st.rerun()
+
+            st.button("📅 IR AL TORNEO", key="btn_home_main", type="primary", use_container_width=True, on_click=saltar_al_fixture, args=(t_act['id'],))
             
             # Tarea 3: Crear el botón y formulario de "INSCRIBIRSE AHORA"
             if "mostrar_form_inscripcion" not in st.session_state:
@@ -2870,16 +2881,22 @@ elif choice == "🏆 Inicio":
                 with st.container():
                     st.markdown("""<style>div[data-testid="stForm"] {background-color: #0E0E0E !important; border: 1px solid #333 !important;}</style>""", unsafe_allow_html=True)
                     with st.form(key="form_insc"):
-                        c_j1, c_j2 = st.columns(2)
-                        jug1 = c_j1.text_input("Jugador 1")
-                        jug2 = c_j2.text_input("Jugador 2")
-                        telefono = st.text_input("Teléfono")
+                        col1, col2 = st.columns(2)
                         
-                        if st.form_submit_button("Enviar Inscripción"):
-                            if jug1 and jug2 and telefono:
+                        with col1:
+                            jug1 = st.text_input("Jugador 1 (Nombre/DNI)", placeholder="Nombre Completo", key="home_j1")
+                            tel1 = st.text_input("Teléfono Jugador 1", placeholder="WhatsApp", key="home_tel1")
+                        
+                        with col2:
+                            jug2 = st.text_input("Jugador 2 (Nombre/DNI)", placeholder="Nombre Completo", key="home_j2")
+                            tel2 = st.text_input("Teléfono Jugador 2", placeholder="WhatsApp", key="home_tel2")
+                        
+                        st.write("")
+                        if st.form_submit_button("Enviar Inscripción", type="primary", use_container_width=True):
+                            if jug1 and jug2 and tel1 and tel2:
                                 st.success("✅ Inscripción recibida correctamente.")
                             else:
-                                st.error("❌ Faltan datos obligatorios.")
+                                st.error("❌ Faltan datos obligatorios: Asegúrate de ingresar Nombre y Teléfono de ambos jugadores.")
 
             # Consejo Motivacional (Justo debajo del botón)
             mostrar_consejo_padel()
