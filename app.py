@@ -2894,7 +2894,15 @@ elif choice == "🏆 Inicio":
                         st.write("")
                         if st.form_submit_button("Enviar Inscripción", type="primary", use_container_width=True):
                             if jug1 and jug2 and tel1 and tel2:
-                                st.success("✅ Inscripción recibida correctamente.")
+                                with custom_spinner():
+                                    guardar_inscripcion(
+                                        t_act['id'], jug1, jug2, "A confirmar", 
+                                        t_act['categoria'], False, tel1, tel2
+                                    )
+                                st.success("✅ Inscripción recibida. Estado: Pendiente de validación.")
+                                time.sleep(1.5)
+                                st.session_state.mostrar_form_inscripcion = False
+                                st.rerun()
                             else:
                                 st.error("❌ Faltan datos obligatorios: Asegúrate de ingresar Nombre y Teléfono de ambos jugadores.")
 
