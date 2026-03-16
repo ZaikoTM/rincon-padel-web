@@ -113,6 +113,19 @@ css_dark_neon = """
             color: white !important; 
             border: 1px solid #333 !important;
         }
+
+        /* Estilos para el menú de navegación (Radio en Sidebar) */
+        section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] p {
+            color: #00FF41 !important;
+            font-weight: 600 !important;
+            font-size: 1.05rem !important;
+            transition: all 0.3s ease !important;
+        }
+        section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:hover p {
+            color: #FFFFFF !important;
+            text-shadow: 0 0 10px #00FF41 !important;
+            transform: translateX(5px);
+        }
     </style>
 """
 
@@ -252,6 +265,18 @@ css_light_forest = """
         /* Ajustes de texto general */
         p, label, span, div {
             color: inherit;
+        }
+        
+        /* Estilos para el menú de navegación (Radio en Sidebar) */
+        section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] p {
+            color: #2E7D32 !important;
+            font-weight: 600 !important;
+            font-size: 1.05rem !important;
+            transition: all 0.3s ease !important;
+        }
+        section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:hover p {
+            color: #1B5E20 !important;
+            transform: translateX(5px);
         }
     </style>
 """
@@ -513,6 +538,64 @@ def obtener_torneos_activos():
 def obtener_partido_en_vivo():
     """Obtiene el partido en vivo para el banner."""
     return cargar_datos("SELECT * FROM partido_en_vivo ORDER BY id DESC LIMIT 1")
+
+def obtener_inscritos_publicos(torneo_id):
+    query = """
+        SELECT jugador1, jugador2, localidad, categoria 
+        FROM inscripciones 
+        WHERE torneo_id = %(id)s AND estado_validacion = 'Validado'
+    """
+    return cargar_datos(query, {"id": torneo_id})
+
+def mostrar_tabla_inscritos(torneo_id):
+    import streamlit as st
+    
+    inscritos = obtener_inscritos_publicos(torneo_id)
+    
+    st.markdown("<h3 style='color: #00FF00; text-shadow: 0 0 10px rgba(0, 255, 0, 0.3); margin-bottom: 15px;'>👥 Parejas Inscritas</h3>", unsafe_allow_html=True)
+    
+    # Verificamos correctamente el DataFrame de Pandas
+    if inscritos is not None and not inscritos.empty:
+        
+        html_table = """
+        <style>
+            .neon-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; background-color: #1A1A1A; border-radius: 10px; overflow: hidden; border: 1px solid #333; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+            .neon-table th { background-color: #000000; color: #00FF00; text-align: left; padding: 12px; font-weight: bold; border-bottom: 2px solid #00FF00; text-transform: uppercase; font-size: 0.85rem; }
+            .neon-table td { padding: 10px 12px; border-bottom: 1px solid #222; color: #E0E0E0; font-size: 0.9rem; }
+            .neon-table tr:hover { background-color: rgba(0, 255, 0, 0.05); }
+            .neon-text { color: #FFFFFF; font-weight: bold; text-shadow: 0 0 5px rgba(255,255,255,0.2); }
+            @keyframes fadeInRow {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .neon-table tbody tr { opacity: 0; animation: fadeInRow 0.4s ease forwards; }
+        </style>
+        <table class="neon-table">
+            <thead>
+                <tr>
+                    <th style="text-align: center; width: 50px;">Nro</th>
+                    <th>Pareja</th>
+                    <th>Localidad</th>
+                    <th>Categoría</th>
+                </tr>
+            </thead>
+            <tbody>
+        """
+        for idx, row in enumerate(inscritos.itertuples(), start=1):
+            delay = idx * 0.05 # Retraso de 0.05s por cada fila
+            html_table += f"""
+            <tr style="animation-delay: {delay}s;">
+                <td style="text-align: center; color: #888;">{idx}</td>
+                <td class="neon-text">{row.jugador1} - {row.jugador2}</td>
+                <td>{row.localidad}</td>
+                <td style="color: #00E676;">{row.categoria}</td>
+            </tr>
+            """
+        html_table += "</tbody></table>"
+        html_table = " ".join(html_table.split())
+        st.markdown(html_table, unsafe_allow_html=True)
+    else:
+        st.info("Aún no hay parejas inscritas en este torneo.")
 
 def buscar_jugador_por_dni(dni):
     """Busca jugadores por DNI (Celular) en la tabla 'jugadores'."""
@@ -919,8 +1002,8 @@ def mostrar_estadisticas_torneo(torneo_id):
     st.markdown("### 📊 Estadísticas del Torneo")
     
     # 1. Total Participantes
-    df_insc = cargar_datos("SELECT count(*) as c FROM inscripciones WHERE torneo_id = :tid", {"tid": int(torneo_id)})
-    total_parejas = df_insc.iloc[0]['c'] if df_insc is not None else 0
+    df_insc = cargar_datos("SELECT jugador1, jugador2, localidad, categoria FROM inscripciones WHERE torneo_id = :tid", {"tid": int(torneo_id)})
+    total_parejas = len(df_insc) if df_insc is not None and not df_insc.empty else 0
     
     # 2. Total Partidos Jugados (Finalizados)
     df_matches = cargar_datos("SELECT resultado FROM partidos WHERE torneo_id = :tid AND estado_partido = 'Finalizado'", {"tid": int(torneo_id)})
@@ -944,6 +1027,39 @@ def mostrar_estadisticas_torneo(torneo_id):
     c3.metric("Definidos en 2 Sets", sets_2, border=True)
     c4.metric("Definidos en 3 Sets", sets_3, border=True)
     st.divider()
+
+    if total_parejas > 0:
+        with st.expander("👥 Parejas Inscritas", expanded=False):
+            html_table = """
+            <style>
+                .stats-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; background-color: #1A1A1A; border-radius: 8px; overflow: hidden; border: 1px solid #333; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+                .stats-table th { background-color: #000000; color: #00FF00; text-align: left; padding: 12px; border-bottom: 2px solid #00FF00; font-size: 0.9rem; text-transform: uppercase; }
+                .stats-table td { padding: 10px 12px; border-bottom: 1px solid #222; color: #E0E0E0; font-size: 0.9rem; }
+                .stats-table tr:hover { background-color: rgba(0, 255, 0, 0.05); }
+            </style>
+            <table class="stats-table">
+                <thead>
+                    <tr>
+                        <th>Jugador 1</th>
+                        <th>Jugador 2</th>
+                        <th>Localidad</th>
+                        <th>Categoría</th>
+                    </tr>
+                </thead>
+                <tbody>
+            """
+            for _, row in df_insc.iterrows():
+                html_table += f"""
+                    <tr>
+                        <td style="font-weight: bold; color: #FFF;">{row['jugador1']}</td>
+                        <td style="font-weight: bold; color: #FFF;">{row['jugador2']}</td>
+                        <td>{row['localidad']}</td>
+                        <td style="color: #00E676;">{row['categoria']}</td>
+                    </tr>
+                """
+            html_table += "</tbody></table>"
+            
+            st.markdown(" ".join(html_table.split()), unsafe_allow_html=True)
 
 def mostrar_cuadro_playoff(torneo_id):
     """Visualiza los cruces de playoff con Bracket HTML (Inyectado)."""
@@ -1212,6 +1328,14 @@ def procesar_resultado(partido_id, score_p1, score_p2, torneo_id):
     
     return True
 
+def cronograma_visual(torneo_id):
+    """Muestra el gráfico timeline de los partidos programados."""
+    fig = generar_grafico_timeline(torneo_id)
+    if fig:
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+    else:
+        st.info("Aún no hay horarios asignados para graficar el cronograma.")
+
 def seccion_carga_resultados(torneo_id):
     st.subheader("🎾 Carga de Resultados")
     
@@ -1430,6 +1554,10 @@ def sincronizar_datos_nube_a_local():
         'ranking_puntos', 'fotos', 'partido_en_vivo'
     ]
 
+    # Inicializar UI de la barra de progreso
+    total_tablas = len(tablas_a_sincronizar)
+    progress_bar = st.progress(0, text="Preparando entorno local...")
+
     try:
         # Conectar a la base de datos local SQLite
         with sqlite3.connect(local_db_file) as conn_local:
@@ -1438,26 +1566,31 @@ def sincronizar_datos_nube_a_local():
             # Deshabilitar claves foráneas durante la carga masiva para evitar errores de orden
             cursor.execute("PRAGMA foreign_keys = OFF;")
 
-            for tabla in tablas_a_sincronizar:
-                st.write(f"Procesando tabla: `{tabla}`...")
+            for i, tabla in enumerate(tablas_a_sincronizar):
+                # Actualizar barra de progreso con el porcentaje y el nombre de la tabla
+                progress_bar.progress(i / total_tablas, text=f"Descargando tabla: {tabla} ({i+1}/{total_tablas})...")
                 
                 # 1. Leer todos los datos de la tabla en la nube (PostgreSQL)
                 df_nube = cargar_datos(f"SELECT * FROM {tabla}")
                 
                 if df_nube is not None:
-                    # 2. Limpiar completamente la tabla local correspondiente
-                    cursor.execute(f"DELETE FROM {tabla};")
-                    conn_local.commit()
-                    
-                    # 3. Insertar los datos del DataFrame en la tabla local
-                    df_nube.to_sql(tabla, conn_local, if_exists='append', index=False)
+                    # 2 y 3. Garantizar existencia de la tabla e insertar datos en SQLite
+                    # Con if_exists='replace', Pandas INICIALIZA automáticamente la tabla 
+                    # con las columnas correctas de la nube si esta no existía previamente, 
+                    # o la borra y reemplaza si ya existía. Esto evita el error "no such table".
+                    df_nube.to_sql(tabla, conn_local, if_exists='replace', index=False)
                 else:
                     st.write(f"  -> Tabla `{tabla}` vacía en la nube o no se pudo leer. Omitiendo.")
+
+            # Llenar la barra al 100% cuando termine el bucle
+            progress_bar.progress(1.0, text="¡Sincronización finalizada!")
+            time.sleep(0.5) # Pequeña pausa para que el usuario vea el 100%
 
             # Reactivar las claves foráneas
             cursor.execute("PRAGMA foreign_keys = ON;")
         return True, "Sincronización completada con éxito."
     except Exception as e:
+        progress_bar.empty() # Limpiar la barra si ocurre un error catastrófico
         return False, f"Error durante la sincronización: {e}"
 
 def actualizar_tabla_posiciones(torneo_id):
@@ -2695,6 +2828,17 @@ if st.secrets.get("MODO_MANTENIMIENTO", False) and not st.session_state.get('es_
                     st.warning("Completa todos los campos obligatorios.")
     st.stop() # Detiene la ejecución aquí para no mostrar el resto de la app
 
+# --- NAVEGACIÓN PRINCIPAL ---
+menu = ["🏆 Inicio", "📅 Fixture y Horarios", "📊 Posiciones", "📈 Ranking", "👥 Jugadores","📍 Sede"]
+
+if st.session_state.get('usuario_logueado'):
+    menu.append("🏠 Mi Panel")
+
+if st.session_state.get('es_admin', False):
+    menu.append("⚙️ Admin")
+
+choice = st.sidebar.radio("Navegación", menu, key="menu_nav")
+
 # --- CONTACTO Y REDES ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("Contacto y Redes")
@@ -2712,19 +2856,14 @@ st.sidebar.markdown("""
                 <span style="font-weight: 500; font-size: 0.95rem; color: #E0E0E0;">Seguinos en Instagram</span>
             </div>
         </a>
+            <a href="https://www.google.com/maps/search/?api=1&query=-31.874656,-59.023991" target="_blank" style="text-decoration: none; color: inherit;">
+                <div style="display: flex; align-items: center; gap: 12px; padding: 10px; background-color: #1E1E1E; border: 1px solid #333; border-radius: 8px; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/b/bd/Google_Maps_Logo_2020.svg" width="24" height="24">
+                    <span style="font-weight: 500; font-size: 0.95rem; color: #E0E0E0;">Cómo llegar a la Sede</span>
+                </div>
+            </a>
     </div>
 """, unsafe_allow_html=True)
-
-# --- NAVEGACIÓN PRINCIPAL ---
-menu = ["🏆 Inicio", "📅 Fixture y Horarios", "📊 Posiciones", "📈 Ranking", "👥 Jugadores","📍 Sede"]
-
-if st.session_state.get('usuario_logueado'):
-    menu.append("🏠 Mi Panel")
-
-if st.session_state.get('es_admin', False):
-    menu.append("⚙️ Admin")
-
-choice = st.sidebar.radio("Navegación", menu, key="menu_nav")
 
 if choice == "🏠 Mi Panel":
     if 'usuario' not in st.session_state:
@@ -2878,6 +3017,9 @@ elif choice == "🏆 Inicio":
                 st.session_state.mostrar_form_inscripcion = not st.session_state.mostrar_form_inscripcion
 
             if st.session_state.mostrar_form_inscripcion:
+                # Mostramos la tabla pública de inscritos antes del formulario
+                mostrar_tabla_inscritos(int(t_act['id']))
+
                 with st.container():
                     st.markdown("""<style>div[data-testid="stForm"] {background-color: #0E0E0E !important; border: 1px solid #333 !important;}</style>""", unsafe_allow_html=True)
                     with st.form(key="form_insc"):
@@ -2947,194 +3089,193 @@ elif choice == "📅 Fixture y Horarios":
         mostrar_estadisticas_torneo(tid)
         
         # 1. Gráfico Visual (Timeline)
-        st.subheader("Horarios Visuales")
-        with custom_spinner():
-            fig = generar_grafico_timeline(tid)
-        
-        if fig:
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-        else:
-            st.info("Aún no se han asignado horarios a los partidos.")
+        with st.expander("🕒 Horarios Visuales", expanded=False):
+            with custom_spinner():
+                fig = generar_grafico_timeline(tid)
+            
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+            else:
+                st.info("Aún no se han asignado horarios a los partidos.")
             
         st.markdown("---")
         
         # 2. Lista de Partidos
-        st.subheader("📋 Lista de Encuentros")
-        
-        # Consulta ampliada para obtener sets individuales y ganador para la lógica visual
-        df_fix = cargar_datos(
-            "SELECT id, instancia, horario, cancha, pareja1, pareja2, resultado, estado_partido, ganador, set1, set2, set3 FROM partidos WHERE torneo_id = :id ORDER BY horario", 
-            {"id": tid}
-        )
-        
-        if df_fix is not None and not df_fix.empty:
-            # --- CSS TARJETAS DE PARTIDO ---
-            st.markdown("""
-            <style>
-                .match-card {
-                    background-color: #1A1A1A;
-                    border: 1px solid #333;
-                    border-radius: 12px;
-                    margin-bottom: 15px;
-                    overflow: hidden;
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-                    transition: transform 0.2s, border-color 0.2s;
-                }
-                .match-card:hover {
-                    border-color: #39FF14; /* Hover Neón */
-                    transform: translateY(-2px);
-                }
-                .match-header {
-                    background-color: #000;
-                    padding: 8px 15px;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    border-bottom: 1px solid #333;
-                    font-size: 0.8rem;
-                    color: #888;
-                    font-weight: 600;
-                    letter-spacing: 0.5px;
-                    text-transform: uppercase;
-                }
-                .match-body {
-                    padding: 12px;
-                }
-                .match-row {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 8px 10px;
-                    border-radius: 8px;
-                    margin-bottom: 4px;
-                }
-                .couple-name {
-                    font-weight: 700;
-                    font-size: 0.95rem;
-                    color: #EEE;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    max-width: 75%;
-                }
-                .scores-container {
-                    display: flex;
-                    gap: 6px;
-                }
-                .set-score {
-                    width: 20px;
-                    text-align: center;
-                    font-family: 'Courier New', monospace;
-                    font-weight: bold;
-                    color: #AAA;
-                    font-size: 1rem;
-                }
-                
-                /* --- ESTILOS GANADOR (NEÓN) --- */
-                .winner-row {
-                    background-color: rgba(0, 255, 0, 0.15);
-                }
-                .winner-text {
-                    color: #00FF00 !important;
-                    text-shadow: 0 0 8px rgba(0, 255, 0, 0.4);
-                }
-                .winner-score {
-                    color: #00FF00 !important;
-                }
-                
-                .time-badge {
-                    color: #FF9100; 
-                    font-weight: bold;
-                    background: rgba(255, 145, 0, 0.1);
-                    padding: 2px 6px;
-                    border-radius: 4px;
-                }
-            </style>
-            """, unsafe_allow_html=True)
-
-            # Grid de 2 columnas para las tarjetas
-            cols = st.columns(2)
+        with st.expander("📋 Lista de Encuentros", expanded=False):
+            # Consulta ampliada para obtener sets individuales y ganador para la lógica visual
+            df_fix = cargar_datos(
+                "SELECT id, instancia, horario, cancha, pareja1, pareja2, resultado, estado_partido, ganador, set1, set2, set3 FROM partidos WHERE torneo_id = :id ORDER BY horario", 
+                {"id": tid}
+            )
             
-            for idx, row in df_fix.iterrows():
-                # Datos básicos
-                p1 = row['pareja1']
-                p2 = row['pareja2']
-                ganador = row['ganador']
-                
-                # Lógica de Estilos para Ganador
-                # Si hay ganador y coincide con P1, aplicamos estilos neón
-                p1_class = "winner-row" if (ganador and ganador == p1) else ""
-                p1_text = "winner-text" if (ganador and ganador == p1) else ""
-                p1_score_style = "winner-score" if (ganador and ganador == p1) else ""
-
-                p2_class = "winner-row" if (ganador and ganador == p2) else ""
-                p2_text = "winner-text" if (ganador and ganador == p2) else ""
-                p2_score_style = "winner-score" if (ganador and ganador == p2) else ""
-
-                # Procesar Sets (Desglosar "6-4" en columnas separadas)
-                sets_data = [row['set1'], row['set2'], row['set3']]
-                html_sets_p1 = ""
-                html_sets_p2 = ""
-                
-                for s in sets_data:
-                    if s and '-' in str(s):
-                        try:
-                            parts = str(s).split('-')
-                            s1, s2 = parts[0], parts[1]
-                            html_sets_p1 += f'<div class="set-score {p1_score_style}">{s1}</div>'
-                            html_sets_p2 += f'<div class="set-score {p2_score_style}">{s2}</div>'
-                        except:
-                            pass
-                
-                # Formateo de Hora (Destacado Naranja)
-                horario_full = "<span style='color:#555'>A conf.</span>"
-                if row['horario']:
-                    try:
-                        dt = datetime.strptime(row['horario'], "%Y-%m-%d %H:%M")
-                        hora_str = dt.strftime("%H:%M")
-                        dia_str = dt.strftime("%d/%m")
-                        horario_full = f"{dia_str} <span class='time-badge'>{hora_str}</span>"
-                    except:
-                        horario_full = row['horario']
-
-                # Etiquetas
-                cancha_lbl = row['cancha'] if row['cancha'] else "Central"
-                instancia_lbl = row['instancia'][:15].upper() if row['instancia'] else "ZONA"
-
-                # Construcción de la Tarjeta HTML
-                html_card = f"""
-                <div class="match-card">
-                    <div class="match-header">
-                        <div>{instancia_lbl} • {cancha_lbl}</div>
-                        <div>{horario_full}</div>
-                    </div>
-                    <div class="match-body">
-                        <!-- Pareja 1 -->
-                        <div class="match-row {p1_class}">
-                            <div class="couple-name {p1_text}">{p1}</div>
-                            <div class="scores-container">{html_sets_p1}</div>
-                        </div>
-                        <!-- Pareja 2 -->
-                        <div class="match-row {p2_class}">
-                            <div class="couple-name {p2_text}">{p2}</div>
-                            <div class="scores-container">{html_sets_p2}</div>
-                        </div>
-                    </div>
-                </div>
-                """
-                
-                # Renderizado en columna correspondiente
-                with cols[idx % 2]:
-                    st.markdown(html_card, unsafe_allow_html=True)
+            if df_fix is not None and not df_fix.empty:
+                # --- CSS TARJETAS DE PARTIDO ---
+                st.markdown("""
+                <style>
+                    .match-card {
+                        background-color: #1A1A1A;
+                        border: 1px solid #333;
+                        border-radius: 12px;
+                        margin-bottom: 15px;
+                        overflow: hidden;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                        transition: transform 0.2s, border-color 0.2s;
+                    }
+                    .match-card:hover {
+                        border-color: #39FF14; /* Hover Neón */
+                        transform: translateY(-2px);
+                    }
+                    .match-header {
+                        background-color: #000;
+                        padding: 8px 15px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        border-bottom: 1px solid #333;
+                        font-size: 0.8rem;
+                        color: #888;
+                        font-weight: 600;
+                        letter-spacing: 0.5px;
+                        text-transform: uppercase;
+                    }
+                    .match-body {
+                        padding: 12px;
+                    }
+                    .match-row {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        padding: 8px 10px;
+                        border-radius: 8px;
+                        margin-bottom: 4px;
+                    }
+                    .couple-name {
+                        font-weight: 700;
+                        font-size: 0.95rem;
+                        color: #EEE;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        max-width: 75%;
+                    }
+                    .scores-container {
+                        display: flex;
+                        gap: 6px;
+                    }
+                    .set-score {
+                        width: 20px;
+                        text-align: center;
+                        font-family: 'Courier New', monospace;
+                        font-weight: bold;
+                        color: #AAA;
+                        font-size: 1rem;
+                    }
                     
-        else:
-            st.info("No hay fixture generado.")
+                    /* --- ESTILOS GANADOR (NEÓN) --- */
+                    .winner-row {
+                        background-color: rgba(0, 255, 0, 0.15);
+                    }
+                    .winner-text {
+                        color: #00FF00 !important;
+                        text-shadow: 0 0 8px rgba(0, 255, 0, 0.4);
+                    }
+                    .winner-score {
+                        color: #00FF00 !important;
+                    }
+                    
+                    .time-badge {
+                        color: #FF9100; 
+                        font-weight: bold;
+                        background: rgba(255, 145, 0, 0.1);
+                        padding: 2px 6px;
+                        border-radius: 4px;
+                    }
+                </style>
+                """, unsafe_allow_html=True)
+    
+                # Grid de 2 columnas para las tarjetas
+                cols = st.columns(2)
+                
+                for idx, row in df_fix.iterrows():
+                    # Datos básicos
+                    p1 = row['pareja1']
+                    p2 = row['pareja2']
+                    ganador = row['ganador']
+                    
+                    # Lógica de Estilos para Ganador
+                    # Si hay ganador y coincide con P1, aplicamos estilos neón
+                    p1_class = "winner-row" if (ganador and ganador == p1) else ""
+                    p1_text = "winner-text" if (ganador and ganador == p1) else ""
+                    p1_score_style = "winner-score" if (ganador and ganador == p1) else ""
+    
+                    p2_class = "winner-row" if (ganador and ganador == p2) else ""
+                    p2_text = "winner-text" if (ganador and ganador == p2) else ""
+                    p2_score_style = "winner-score" if (ganador and ganador == p2) else ""
+    
+                    # Procesar Sets (Desglosar "6-4" en columnas separadas)
+                    sets_data = [row['set1'], row['set2'], row['set3']]
+                    html_sets_p1 = ""
+                    html_sets_p2 = ""
+                    
+                    for s in sets_data:
+                        if s and '-' in str(s):
+                            try:
+                                parts = str(s).split('-')
+                                s1, s2 = parts[0], parts[1]
+                                html_sets_p1 += f'<div class="set-score {p1_score_style}">{s1}</div>'
+                                html_sets_p2 += f'<div class="set-score {p2_score_style}">{s2}</div>'
+                            except:
+                                pass
+                    
+                    # Formateo de Hora (Destacado Naranja)
+                    horario_full = "<span style='color:#555'>A conf.</span>"
+                    if row['horario']:
+                        try:
+                            dt = datetime.strptime(row['horario'], "%Y-%m-%d %H:%M")
+                            hora_str = dt.strftime("%H:%M")
+                            dia_str = dt.strftime("%d/%m")
+                            horario_full = f"{dia_str} <span class='time-badge'>{hora_str}</span>"
+                        except:
+                            horario_full = row['horario']
+    
+                    # Etiquetas
+                    cancha_lbl = row['cancha'] if row['cancha'] else "Central"
+                    instancia_lbl = row['instancia'][:15].upper() if row['instancia'] else "ZONA"
+    
+                    # Construcción de la Tarjeta HTML
+                    html_card = f"""
+                    <div class="match-card">
+                        <div class="match-header">
+                            <div>{instancia_lbl} • {cancha_lbl}</div>
+                            <div>{horario_full}</div>
+                        </div>
+                        <div class="match-body">
+                            <!-- Pareja 1 -->
+                            <div class="match-row {p1_class}">
+                                <div class="couple-name {p1_text}">{p1}</div>
+                                <div class="scores-container">{html_sets_p1}</div>
+                            </div>
+                            <!-- Pareja 2 -->
+                            <div class="match-row {p2_class}">
+                                <div class="couple-name {p2_text}">{p2}</div>
+                                <div class="scores-container">{html_sets_p2}</div>
+                            </div>
+                        </div>
+                    </div>
+                    """
+                    
+                    # Renderizado en columna correspondiente
+                    with cols[idx % 2]:
+                        st.markdown(html_card, unsafe_allow_html=True)
+                        
+            else:
+                st.info("No hay fixture generado.")
             
         st.markdown("---")
         
         # 3. Llaves / Playoffs
-        st.subheader("🏆 Cuadro Final")
-        mostrar_cuadro_playoff(tid)
+        with st.expander("🏆 Cuadro Final", expanded=False):
+            mostrar_cuadro_playoff(tid)
     else:
         st.warning("Selecciona un torneo para ver el fixture.")
 
@@ -3870,16 +4011,10 @@ elif choice == "⚙️ Admin":
                 st.markdown("---")
                 st.subheader("🛠️ Edición Manual de Horarios")
                 
-                # --- VISUALIZACIÓN TIMELINE ---
-                st.markdown("##### 📊 Cronograma Visual")
-                fig_timeline = generar_grafico_timeline(id_real)
-                if fig_timeline:
-                    st.plotly_chart(fig_timeline, use_container_width=True, config={'displayModeBar': False})
-                else:
-                    st.caption("Asigna horarios a los partidos para ver el cronograma aquí.")
-                
-                seccion_carga_resultados(id_real)
+                # Nuevas funciones implementadas
+                cronograma_visual(id_real)
                 seccion_gestion_horarios(id_real)
+                seccion_carga_resultados(id_real)
                 
                 st.markdown("---")
                 st.subheader("4. Fase Final: Playoffs")
@@ -4017,6 +4152,19 @@ elif choice == "⚙️ Admin":
                     st.success(f"✅ {message}")
                 else:
                     st.error(f"❌ {message}")
+                    
+            st.markdown("---")
+            st.write("📥 **Descargar Copia de Seguridad**")
+            if os.path.exists('torneos_padel.db'):
+                with open('torneos_padel.db', "rb") as f:
+                    st.download_button(
+                        label="💾 Descargar Base de Datos Local (.db)",
+                        data=f,
+                        file_name=f"torneos_padel_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db",
+                        mime="application/vnd.sqlite3"
+                    )
+            else:
+                st.info("El archivo de base de datos local aún no existe. Ejecuta una sincronización primero.")
 
         with tab_admin_fotos:
             st.subheader("Subir Nueva Foto")
