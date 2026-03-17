@@ -21,6 +21,11 @@ import sqlite3
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import text
 import contextlib
+
+# --- IMPORTAR UTILIDADES CENTRALES ---
+from utils import get_data, cargar_datos, run_action, init_db, limpiar_cache, normalize_params
+from simulador import mostrar_simulador
+
 # Configuración de página con estética Rincón Padel
 # Configuración optimizada: Carga diferida de assets
 page_icon = "assets/logo_rincon.png" if os.path.exists("assets/logo_rincon.png") else "🎾"
@@ -51,6 +56,10 @@ keys_formulario = ['f_nombre_j1', 'f_nombre_j2', 'f_dni_j1', 'f_dni_j2', 'f_tel_
 for k in keys_formulario:
     if k not in st.session_state:
         st.session_state[k] = ""
+
+# Inicializar selector de torneos para evitar AttributeError en callbacks
+if "id_torneo_selector" not in st.session_state:
+    st.session_state["id_torneo_selector"] = None
 
 # Toggle en Sidebar (Lo colocamos al principio para que cargue antes que el resto)
 with st.sidebar:
@@ -323,7 +332,8 @@ def get_db_connection():
         type='sql',
         pool_size=10,
         max_overflow=20,
-        pool_pre_ping=True
+        pool_pre_ping=True,
+        connect_args={'connect_timeout': 5}
     )
 
 def run_action(query, params=None, return_id=False):
@@ -339,125 +349,53 @@ def run_action(query, params=None, return_id=False):
         with conn.session as s:
             if return_id:
                 result = s.execute(text(query), params)
+                res_val = result.fetchone()[0]
                 s.commit()
-                return result.fetchone()[0]
             else:
                 s.execute(text(query), params)
+                res_val = None
                 s.commit()
-                return None
+                    
+            # 3. LÓGICA DE INVALIDACIÓN AUTOMÁTICA
+            # Al detectar una escritura (INSERT/UPDATE), borramos el caché global.
+            # Esto garantiza que los usuarios vean el nuevo resultado de inmediato.
+            if query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE")):
+                st.cache_data.clear()
+                
+            return res_val
     except Exception as e:
         st.error(f'❌ Error de Conexión: {str(e)}')
         st.stop()
 
 @st.cache_resource
 def init_db():
-    # Tabla Inscripciones
-    run_action('''CREATE TABLE IF NOT EXISTS inscripciones
-                 (id SERIAL PRIMARY KEY, 
-                  torneo_id INTEGER, jugador1 TEXT, jugador2 TEXT, localidad TEXT, 
-                  categoria TEXT, pago_confirmado INTEGER, telefono1 TEXT, telefono2 TEXT,
-                  estado_pago TEXT DEFAULT 'Pendiente', estado_validacion TEXT DEFAULT 'Pendiente')''')
-    # Tabla Torneos
-    run_action('''CREATE TABLE IF NOT EXISTS torneos
-                 (id SERIAL PRIMARY KEY, 
-                  nombre TEXT, fecha TEXT, categoria TEXT, estado TEXT, es_puntuable INTEGER DEFAULT 1,
-                  super_tiebreak INTEGER DEFAULT 0, puntos_tiebreak INTEGER DEFAULT 10,
-                  fecha_inicio DATE, fecha_fin DATE)''')
-    # Tabla Resultados / Partidos
-    run_action('''CREATE TABLE IF NOT EXISTS partidos
-                 (id SERIAL PRIMARY KEY, 
-                  torneo_id INTEGER, pareja1 TEXT, pareja2 TEXT, 
-                  resultado TEXT, instancia TEXT,
-                  bracket_pos INTEGER, estado_partido TEXT DEFAULT 'Próximo',
-                  ganador TEXT, horario TEXT, cancha TEXT,
-                  hora_fin TEXT, set1 TEXT, set2 TEXT, set3 TEXT)''')
-    # Tabla Zonas
-    run_action('''CREATE TABLE IF NOT EXISTS zonas
-                 (id SERIAL PRIMARY KEY, 
-                  torneo_id INTEGER, nombre_zona TEXT, pareja TEXT)''')
-    
-    # Tabla Fotos
-    run_action('''CREATE TABLE IF NOT EXISTS fotos
-                 (id SERIAL PRIMARY KEY, 
-                  nombre TEXT, imagen BYTEA, fecha TEXT)''')
-    
-    # Tabla Jugadores (Niveles)
-    run_action('''CREATE TABLE IF NOT EXISTS jugadores
-                 (id SERIAL PRIMARY KEY, 
-                  dni TEXT UNIQUE, celular TEXT UNIQUE, password TEXT, nombre TEXT, apellido TEXT,
-                  localidad TEXT, categoria_actual TEXT, categoria_anterior TEXT, foto BYTEA,
-                  estado_cuenta TEXT DEFAULT 'Pendiente')''')
-
-    # Tabla Eventos (Afiches y Configuración Extra)
-    run_action('''CREATE TABLE IF NOT EXISTS eventos
-                 (id SERIAL PRIMARY KEY, 
-                  torneo_id INTEGER, afiche TEXT)''')
-
-    # Tabla Zonas Posiciones (Persistencia de tabla)
-    run_action('''CREATE TABLE IF NOT EXISTS zonas_posiciones
-                 (id SERIAL PRIMARY KEY, 
-                  torneo_id INTEGER, nombre_zona TEXT, pareja TEXT,
-                  pts INTEGER DEFAULT 0, pj INTEGER DEFAULT 0, 
-                  pg INTEGER DEFAULT 0, pp INTEGER DEFAULT 0, 
-                  sf INTEGER DEFAULT 0, sc INTEGER DEFAULT 0, ds INTEGER DEFAULT 0)''')
-
-    # Migración de columnas para conteo de Games (Solicitado para la carga de resultados)
     try:
-        run_action("ALTER TABLE zonas_posiciones ADD COLUMN IF NOT EXISTS gf INTEGER DEFAULT 0")
-        run_action("ALTER TABLE zonas_posiciones ADD COLUMN IF NOT EXISTS gc INTEGER DEFAULT 0")
-        run_action("ALTER TABLE zonas_posiciones ADD COLUMN IF NOT EXISTS dg INTEGER DEFAULT 0")
-    except Exception:
-        pass
-
-    # Tabla Ranking Puntos (Nueva para visualización de ranking global)
-    run_action('''CREATE TABLE IF NOT EXISTS ranking_puntos
-                 (id SERIAL PRIMARY KEY, 
-                  torneo_id INTEGER, jugador TEXT, categoria TEXT, puntos INTEGER)''')
-
-    # Tabla Partido en Vivo (Banner Home)
-    run_action('''CREATE TABLE IF NOT EXISTS partido_en_vivo
-                 (id SERIAL PRIMARY KEY, 
-                  torneo TEXT, pareja1 TEXT, pareja2 TEXT, 
-                  marcador TEXT)''')
-
-    # --- MIGRACIONES (Para compatibilidad con DBs existentes) ---
-    try:
-        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS bracket_pos INTEGER")
-        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS estado_partido TEXT DEFAULT 'Próximo'")
-        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS ganador TEXT")
-        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS horario TEXT")
-        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS cancha TEXT")
-        
-        run_action("ALTER TABLE inscripciones ADD COLUMN IF NOT EXISTS telefono1 TEXT")
-        run_action("ALTER TABLE inscripciones ADD COLUMN IF NOT EXISTS telefono2 TEXT")
-        run_action("ALTER TABLE inscripciones ADD COLUMN IF NOT EXISTS torneo_id INTEGER")
-        run_action("ALTER TABLE inscripciones ADD COLUMN IF NOT EXISTS estado_pago TEXT DEFAULT 'Pendiente'")
-        run_action("ALTER TABLE inscripciones ADD COLUMN IF NOT EXISTS estado_validacion TEXT DEFAULT 'Pendiente'")
-
-        run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS celular TEXT UNIQUE")
-        run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS password TEXT")
-        run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS apellido TEXT")
-        run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS estado_cuenta TEXT DEFAULT 'Pendiente'")
-        run_action("ALTER TABLE jugadores ADD COLUMN IF NOT EXISTS dni TEXT")
-
-        run_action("ALTER TABLE torneos ADD COLUMN IF NOT EXISTS es_puntuable INTEGER DEFAULT 1")
-        run_action("ALTER TABLE torneos ADD COLUMN IF NOT EXISTS super_tiebreak INTEGER DEFAULT 0")
-        run_action("ALTER TABLE torneos ADD COLUMN IF NOT EXISTS puntos_tiebreak INTEGER DEFAULT 10")
-        
-        # Nuevas columnas solicitadas
-        run_action("ALTER TABLE torneos ADD COLUMN IF NOT EXISTS fecha_inicio DATE")
-        run_action("ALTER TABLE torneos ADD COLUMN IF NOT EXISTS fecha_fin DATE")
-        
-        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS hora_fin TEXT")
-        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS set1 TEXT")
-        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS set2 TEXT")
-        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS set3 TEXT")
-        run_action("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS hora_inicio_real TEXT")
-    except Exception:
-        pass
+        conn = get_db_connection()
+        return conn
+    except Exception as e:
+        st.error(f"Error crítico al conectar a la base de datos: {e}")
+        st.stop()
 
 def limpiar_cache():
     st.cache_data.clear()
+
+# --- SISTEMA DE FEED SOCIAL (MOCK TEMPORAL) ---
+def inicializar_feed_mock():
+    """Inicializa datos simulados para el Feed Social en session_state."""
+    if 'feed_actividad' not in st.session_state:
+        st.session_state['feed_actividad'] = [
+            {"fecha_hora": (datetime.now() - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M"), "tipo_evento": "victoria", "mensaje": "¡Juan y Nico ganaron su partido de 4ta 6-4, 6-2!"},
+            {"fecha_hora": (datetime.now() - timedelta(minutes=25)).strftime("%Y-%m-%d %H:%M"), "tipo_evento": "inscripcion", "mensaje": "¡Nueva pareja inscrita: Martín y Lucas en 6ta!"},
+            {"fecha_hora": (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M"), "tipo_evento": "ranking", "mensaje": "Pedro subió al Top 5 del ranking de 5ta categoría."},
+            {"fecha_hora": (datetime.now() - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M"), "tipo_evento": "aviso", "mensaje": "Los horarios del sábado ya están publicados en el Fixture."},
+            {"fecha_hora": (datetime.now() - timedelta(hours=5)).strftime("%Y-%m-%d %H:%M"), "tipo_evento": "victoria", "mensaje": "Sturla / Villagran avanzan a Semifinales tras un duro 7-6, 6-4."}
+        ]
+
+def agregar_evento_feed(tipo_evento, mensaje):
+    """Agrega un evento al Feed Social. (Simulado en session_state por ahora)."""
+    inicializar_feed_mock()
+    nuevo_evento = {"fecha_hora": datetime.now().strftime("%Y-%m-%d %H:%M"), "tipo_evento": tipo_evento, "mensaje": mensaje}
+    st.session_state['feed_actividad'].insert(0, nuevo_evento) # Insertar al principio para verlo arriba
 
 def hash_password(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
@@ -469,6 +407,14 @@ def guardar_inscripcion(torneo_id, j1, j2, loc, cat, pago, tel1, tel2):
         
     run_action("INSERT INTO inscripciones (torneo_id, jugador1, jugador2, localidad, categoria, pago_confirmado, telefono1, telefono2) VALUES (%(torneo_id)s, %(jugador1)s, %(jugador2)s, %(localidad)s, %(categoria)s, %(pago_confirmado)s, %(telefono1)s, %(telefono2)s)", 
               {"torneo_id": torneo_id, "jugador1": j1, "jugador2": j2, "localidad": loc, "categoria": cat, "pago_confirmado": 1 if pago else 0, "telefono1": tel1, "telefono2": tel2})
+    limpiar_cache()
+
+def eliminar_pareja_torneo(pareja_id, torneo_id):
+    """Da de baja y elimina una pareja inscrita de un torneo en particular."""
+    if not st.session_state.get('es_admin', False): return
+    # Ejecutamos el DELETE directamente sobre la tabla inscripciones
+    run_action("DELETE FROM inscripciones WHERE id = %(id)s AND torneo_id = %(torneo_id)s", 
+              {"id": pareja_id, "torneo_id": torneo_id})
     limpiar_cache()
 
 def crear_torneo(nombre, fecha, categoria, es_puntuable=True, super_tiebreak=False, puntos_tiebreak=10):
@@ -511,7 +457,7 @@ def cargar_datos(query, params=None):
         return conn.query(query, params=params, ttl=0)
         
     except Exception as e:
-        error_msg = str(e)
+        error_msg = str(e)        
         
         # Manejo de saturación (Max Clients)
         if "MaxClientsInSessionMode" in error_msg or "too many clients" in error_msg.lower():
@@ -528,8 +474,8 @@ def cargar_datos(query, params=None):
                 st.error(f"❌ No se pudo restablecer la conexión: {e_final}")
                 return None
         else:
-            st.error(f"❌ Error de base de datos: {e}")
-            return None
+            st.warning("⚠️ Actualizando datos, por favor espera unos segundos...")
+            return pd.DataFrame()
 
 def obtener_torneos_activos():
     """Obtiene la lista de torneos activos (estado 'Abierto')."""
@@ -2749,7 +2695,6 @@ if df_torneos_sb is not None and not df_torneos_sb.empty:
         st.session_state.id_torneo = int(df_torneos_sb.iloc[0]['id'])
 
     def update_torneo():
-        st.session_state.id_torneo = st.session_state.id_torneo_selector
         st.session_state.id_torneo = st.session_state.selector_torneo
 
     # Sincronizar índice para que el selector refleje cambios externos (ej: botones del home)
@@ -2829,7 +2774,7 @@ if st.secrets.get("MODO_MANTENIMIENTO", False) and not st.session_state.get('es_
     st.stop() # Detiene la ejecución aquí para no mostrar el resto de la app
 
 # --- NAVEGACIÓN PRINCIPAL ---
-menu = ["🏆 Inicio", "📅 Fixture y Horarios", "📊 Posiciones", "📈 Ranking", "👥 Jugadores","📍 Sede"]
+menu = ["🏆 Inicio", "📅 Fixture y Horarios", "📊 Posiciones", "📈 Ranking", "👥 Jugadores", "📍 Sede", "📺 Pantalla TV","💻 Simulador"]
 
 if st.session_state.get('usuario_logueado'):
     menu.append("🏠 Mi Panel")
@@ -2865,7 +2810,7 @@ st.sidebar.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-if choice == "🏠 Mi Panel":
+def mostrar_panel_usuario():
     if 'usuario' not in st.session_state:
         st.warning("Por favor inicia sesión para ver tu panel.")
         st.stop()
@@ -2922,7 +2867,7 @@ if choice == "🏠 Mi Panel":
     if b2.button("🤝 Buscar Pareja", use_container_width=True):
         st.info("Función próximamente disponible")
 
-elif choice == "🏆 Inicio":
+def mostrar_inicio():
     # 1. TÍTULO PRINCIPAL CENTRADO
     st.markdown("""
         <div style="
@@ -3080,10 +3025,81 @@ elif choice == "🏆 Inicio":
     else:
         st.info("No hay otros eventos en agenda.")
 
-elif choice == "📅 Fixture y Horarios":
+    # --- 4. FEED SOCIAL / ACTIVIDAD RECIENTE ---
+    st.markdown("---")
+    st.subheader("⚡ Actividad Reciente")
+    
+    # Diccionario de Iconos Dinámicos
+    iconos_feed = {
+        "victoria": "🏆",
+        "inscripcion": "🎾",
+        "ranking": "📈",
+        "aviso": "📣"
+    }
+    
+    # CSS Inyectado para las tarjetas del Feed
+    css_feed = """
+    <style>
+        .feed-card { background-color: #111; border-left: 4px solid #39FF14; border-radius: 8px; padding: 12px 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); transition: transform 0.2s; }
+        .feed-card:hover { transform: translateX(5px); background-color: #1a1a1a; border-left: 4px solid #00E676; }
+        .feed-icon { font-size: 1.8rem; background: #222; padding: 10px; border-radius: 50%; min-width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); }
+        .feed-content { flex-grow: 1; }
+        .feed-msg { color: #fff; font-size: 0.95rem; margin-bottom: 4px; line-height: 1.3; }
+        .feed-time { color: #888; font-size: 0.75rem; font-family: monospace; }
+        /* Ajustar scrollbar interno */
+        div[data-testid="stVerticalBlock"] > div > div > div > div { scrollbar-width: thin; scrollbar-color: #39FF14 #111; }
+        /* Ajustes Móviles */
+        @media (max-width: 768px) {
+            .feed-card { padding: 10px; gap: 10px; }
+            .feed-msg { font-size: 0.85rem; }
+            .feed-icon { font-size: 1.5rem; min-width: 40px; height: 40px; padding: 5px; }
+        }
+    </style>
+    """
+    st.markdown(css_feed, unsafe_allow_html=True)
+    
+    # Contenedor con altura fija y Scroll Vertical
+    with st.container(height=500):
+        if df_active is not None and not df_active.empty:
+            tid_activo = int(df_active.iloc[0]['id'])
+            # Consultar últimos partidos finalizados reales del torneo
+            df_feed = cargar_datos("SELECT pareja1, pareja2, ganador, resultado, hora_fin FROM partidos WHERE torneo_id = :tid AND estado_partido = 'Finalizado' ORDER BY hora_fin DESC NULLS LAST, id DESC LIMIT 10", {"tid": tid_activo})
+            
+            if df_feed is not None and not df_feed.empty:
+                for _, row in df_feed.iterrows():
+                    ganador = row['ganador'] if row['ganador'] else "Una pareja"
+                    perdedor = row['pareja2'] if ganador == row['pareja1'] else row['pareja1']
+                    hora = row['hora_fin'] if row['hora_fin'] else "Recientemente"
+                    
+                    mensaje = f"¡{ganador} venció a {perdedor} por {row['resultado']}!"
+                    
+                    html_evento = f'''
+                    <div class="feed-card">
+                        <div class="feed-icon">🏆</div>
+                        <div class="feed-content">
+                            <div class="feed-msg">{mensaje}</div>
+                            <div class="feed-time">{hora}</div>
+                        </div>
+                    </div>
+                    '''
+                    st.markdown(html_evento, unsafe_allow_html=True)
+            else:
+                st.info("Aún no hay partidos finalizados en este torneo.")
+        else:
+            st.info("No hay torneos activos para mostrar actividad.")
+
+def mostrar_fixture():
+    def ir_a_inicio():
+        st.session_state.menu_nav = "🏆 Inicio"
+
     tid = st.session_state.get('id_torneo')
     if tid:
-        st.header("📅 Cronograma de Partidos")
+        col_titulo, col_btn = st.columns([3, 1])
+        with col_titulo:
+            st.header("📅 Cronograma de Partidos")
+        with col_btn:
+            st.write("") # Espaciador para alinear verticalmente con el título
+            st.button("🔙 Volver al Inicio", use_container_width=True, on_click=ir_a_inicio, key="btn_volver_fixture")
         
         # NUEVO: Panel de Estadísticas
         mostrar_estadisticas_torneo(tid)
@@ -3279,7 +3295,7 @@ elif choice == "📅 Fixture y Horarios":
     else:
         st.warning("Selecciona un torneo para ver el fixture.")
 
-elif choice == "📊 Posiciones":
+def mostrar_posiciones():
         tid = st.session_state.get('id_torneo')
         if tid:
             st.header("📊 Tablas de Posiciones")
@@ -3297,8 +3313,24 @@ elif choice == "📊 Posiciones":
             if df_zonas.empty:
                 st.info("Las zonas no han sido sorteadas para este torneo.")
             else:
-                # CSS Minificado para que Streamlit no lo rompa
-                css_pos = "<style>.pos-card{background-color:#1A1A1A;border:1px solid #333;border-radius:12px;padding:15px;margin-bottom:20px;box-shadow:0 4px 6px rgba(0,0,0,0.3)}.pos-zone-header{color:#00FF00;font-family:'Segoe UI',sans-serif;font-size:1.1rem;font-weight:800;text-transform:uppercase;margin-bottom:12px;border-bottom:2px solid #333;padding-bottom:5px;display:flex;justify-content:space-between}.pos-table{width:100%;border-collapse:collapse;font-family:'Segoe UI',sans-serif;font-size:0.85rem;color:#E0E0E0}.pos-table th{text-align:center;color:#888;font-weight:600;padding:8px 2px;border-bottom:1px solid #444;font-size:0.75rem;text-transform:uppercase}.pos-table td{text-align:center;padding:10px 2px;border-bottom:1px solid #222}.col-left{text-align:left !important;width:35%}.qualified-row{background-color:rgba(144,238,144,0.05)}.qualified-name{color:#90EE90;font-weight:bold;text-shadow:0 0 5px rgba(144,238,144,0.2)}.pos-points{color:white;font-weight:900;font-size:1rem}</style>"
+                css_pos = """
+                <style>
+                .pos-card{background-color:#1A1A1A;border:1px solid #333;border-radius:12px;padding:15px;margin-bottom:20px;box-shadow:0 4px 6px rgba(0,0,0,0.3); overflow-x:auto;}
+                .pos-zone-header{color:#00FF00;font-family:'Segoe UI',sans-serif;font-size:1.1rem;font-weight:800;text-transform:uppercase;margin-bottom:12px;border-bottom:2px solid #333;padding-bottom:5px;display:flex;justify-content:space-between}
+                .pos-table{width:100%;border-collapse:collapse;font-family:'Segoe UI',sans-serif;font-size:0.85rem;color:#E0E0E0}
+                .pos-table th{text-align:center;color:#888;font-weight:600;padding:8px 2px;border-bottom:1px solid #444;font-size:0.75rem;text-transform:uppercase}
+                .pos-table td{text-align:center;padding:10px 2px;border-bottom:1px solid #222}
+                .col-left{text-align:left !important;width:35%}
+                .qualified-row{background-color:rgba(144,238,144,0.05)}
+                .qualified-name{color:#90EE90;font-weight:bold;text-shadow:0 0 5px rgba(144,238,144,0.2)}
+                .pos-points{color:white;font-weight:900;font-size:1rem}
+                @media (max-width: 768px) {
+                    .hide-mob { display: none; }
+                    .pos-table th, .pos-table td { padding: 6px 1px; font-size: 0.75rem; }
+                    .col-left { width: 50%; }
+                }
+                </style>
+                """
                 st.markdown(css_pos, unsafe_allow_html=True)
 
                 grupos = df_zonas.groupby('nombre_zona')
@@ -3311,7 +3343,7 @@ elif choice == "📊 Posiciones":
                     
                     with cols[idx % 2]:
                         # CONSTRUCCIÓN BLINDADA CON TODAS LAS COLUMNAS
-                        html_table = f'<div class="pos-card"><div class="pos-zone-header"><span>{nombre}</span><span>🏆</span></div><table class="pos-table"><thead><tr><th class="col-left">PAREJA</th><th>PJ</th><th>PG</th><th>PP</th><th>SF</th><th>SC</th><th>DS</th><th>DG</th><th>PTS</th></tr></thead><tbody>'
+                        html_table = f'<div class="pos-card"><div class="pos-zone-header"><span>{nombre}</span><span>🏆</span></div><table class="pos-table"><thead><tr><th class="col-left">PAREJA</th><th>PJ</th><th>PG</th><th class="hide-mob">PP</th><th class="hide-mob">SF</th><th class="hide-mob">SC</th><th>DS</th><th>DG</th><th>PTS</th></tr></thead><tbody>'
                         
                         for i, row in enumerate(df_grupo.itertuples()):
                             is_qualified = i < 2
@@ -3320,7 +3352,7 @@ elif choice == "📊 Posiciones":
                             check = "✅" if is_qualified else ""
                             
                             # Fila en una sola línea agregando todas las estadísticas
-                            fila = f'<tr class="{row_class}"><td class="col-left {name_class}">{row.pareja} <span style="font-size:0.7rem;">{check}</span></td><td>{row.pj}</td><td>{row.pg}</td><td>{row.pp}</td><td>{row.sf}</td><td>{row.sc}</td><td>{row.ds}</td><td style="color:#666;">{row.dg}</td><td class="pos-points">{row.pts}</td></tr>'
+                            fila = f'<tr class="{row_class}"><td class="col-left {name_class}">{row.pareja} <span style="font-size:0.7rem;">{check}</span></td><td>{row.pj}</td><td>{row.pg}</td><td class="hide-mob">{row.pp}</td><td class="hide-mob">{row.sf}</td><td class="hide-mob">{row.sc}</td><td>{row.ds}</td><td style="color:#666;">{row.dg}</td><td class="pos-points">{row.pts}</td></tr>'
                             html_table += fila
                             
                         html_table += '</tbody></table></div>'
@@ -3334,7 +3366,7 @@ elif choice == "📊 Posiciones":
             st.warning("Selecciona un torneo para ver posiciones.")
     
 
-elif choice == "👥 Jugadores":
+def mostrar_jugadores():
     tab_jugadores, tab_h2h, tab_perfil = st.tabs(["👥 Listado de Jugadores", "🆚 H2H", "👤 Mi Perfil"])
     
     with tab_perfil:
@@ -3617,10 +3649,10 @@ elif choice == "👥 Jugadores":
         else:
             st.info("No hay suficientes jugadores para comparar.")       
 
-elif choice == "📍 Sede":
+def mostrar_sede():
     mostrar_seccion_sede()
 
-elif choice == "⚙️ Admin":
+def mostrar_panel_admin():
     if not st.session_state.es_admin:
         st.error("Acceso denegado. Inicia sesión como administrador.")
     else:
@@ -3849,6 +3881,33 @@ elif choice == "⚙️ Admin":
 
                 st.markdown("---")
                 
+                # --- BAJA DE PAREJAS ---
+                st.subheader("⬇️ Dar de Baja Pareja (Inscripciones Validadas)")
+                st.write("Usa esta opción si una pareja abandona el torneo antes del sorteo de zonas.")
+                
+                # Obtenemos solo las parejas validadas del torneo actual
+                df_bajas = cargar_datos("SELECT id, jugador1, jugador2 FROM inscripciones WHERE torneo_id = :tid AND estado_validacion = 'Validado'", {"tid": id_real})
+                
+                if df_bajas is not None and not df_bajas.empty:
+                    opts_baja = {row['id']: f"{row['jugador1']} - {row['jugador2']}" for _, row in df_bajas.iterrows()}
+                    
+                    baja_sel = st.selectbox("Seleccionar pareja a dar de baja", options=list(opts_baja.keys()), format_func=lambda x: opts_baja[x])
+                    
+                    with st.expander("⚠️ Confirmar Borrado Definitivo", expanded=False):
+                        st.write("Estás a punto de dar de baja y borrar de la base de datos a la pareja:")
+                        st.markdown(f"<h3 style='color: #FF4B4B; text-align: center;'>{opts_baja[baja_sel]}</h3>", unsafe_allow_html=True)
+                        st.warning("Esta acción es irreversible y liberará un cupo en el torneo. ¿Estás seguro de que deseas continuar?")
+                        if st.button("Sí, eliminar definitivamente", type="primary", use_container_width=True):
+                            eliminar_pareja_torneo(baja_sel, id_real)
+                            st.cache_data.clear()
+                            st.success("Pareja eliminada definitivamente del torneo.")
+                            time.sleep(1.5)
+                            st.rerun()
+                else:
+                    st.info("No hay parejas validadas para dar de baja en este torneo.")
+
+                st.markdown("---")
+
                 # --- FASE PREVIA: GESTIÓN DE ZONAS ---
                 st.subheader("2. Fase Previa: Gestión de Zonas")
                 if t_data['estado'] == 'Abierto':
@@ -4516,5 +4575,166 @@ elif choice == "⚙️ Admin":
 
         debug_base_datos()
 
+def mostrar_transmision():
+    def ir_a_inicio():
+        st.session_state.menu_nav = "🏆 Inicio"
+
+    # --- CONTROLES SUPERIORES (Admin / TV) ---
+    col_btn1, col_btn2, col_vacio = st.columns([1, 1, 4])
+    
+    with col_btn1:
+        st.button("🔙 Volver al Inicio", use_container_width=True, on_click=ir_a_inicio)
+            
+    with col_btn2:
+        # Inyectamos el botón HTML/JS para el Fullscreen
+        # Apuntamos a window.parent para afectar a la pestaña completa de Streamlit
+        html_fullscreen = """
+        <style>
+            .btn-fullscreen {
+                background-color: transparent;
+                color: #FFFFFF;
+                border: 1px solid #333;
+                padding: 6px 15px;
+                border-radius: 8px;
+                font-family: 'Segoe UI', sans-serif;
+                font-size: 1rem;
+                cursor: pointer;
+                width: 100%;
+                transition: all 0.3s ease;
+            }
+            .btn-fullscreen:hover {
+                border-color: #39FF14;
+                color: #39FF14;
+            }
+        </style>
+        <button class="btn-fullscreen" onclick="goFullscreen()">🔲 Pantalla Completa</button>
+        <script>
+            function goFullscreen() {
+                const doc = window.parent.document.documentElement;
+                if (doc.requestFullscreen) { doc.requestFullscreen(); }
+                else if (doc.mozRequestFullScreen) { doc.mozRequestFullScreen(); }
+                else if (doc.webkitRequestFullscreen) { doc.webkitRequestFullscreen(); }
+                else if (doc.msRequestFullscreen) { doc.msRequestFullscreen(); }
+            }
+        </script>
+        """
+        components.html(html_fullscreen, height=45)
+
+    # 1. AUTO-RECARGA (30 segundos) usando inyección de JavaScript
+    components.html(
+        """
+        <script>
+        setTimeout(function(){
+            window.parent.location.reload();
+        }, 30000);
+        </script>
+        """, height=0, width=0
+    )
+
+    # 2. LIMPIEZA VISUAL EXTREMA (Ocultar Sidebar, Header, Footer y forzar Full Width real)
+    st.markdown("""
+        <style>
+            /* Ocultar elementos de Streamlit */
+            [data-testid="stSidebar"] {display: none !important;}
+            [data-testid="collapsedControl"] {display: none !important;}
+            header {display: none !important;}
+            footer {display: none !important;}
+            
+            /* Eliminar paddings innecesarios */
+            .block-container {
+                padding-top: 1rem !important;
+                padding-bottom: 0rem !important;
+                padding-left: 2rem !important;
+                padding-right: 2rem !important;
+                max-width: 100% !important;
+            }
+
+            /* ESTÉTICA MODO TV */
+            .tv-title { color: #39FF14; text-align: center; font-size: 3.5rem; font-weight: 900; letter-spacing: 4px; text-transform: uppercase; text-shadow: 0 0 20px rgba(57, 255, 20, 0.6); margin-bottom: 30px; }
+            
+            .tv-live-card { background: linear-gradient(145deg, #0a0a0a, #151515); border: 4px solid #39FF14; border-radius: 25px; padding: 40px; text-align: center; box-shadow: 0 0 40px rgba(57, 255, 20, 0.3); margin-bottom: 40px; }
+            .tv-live-header { color: #fff; font-size: 2rem; font-weight: bold; letter-spacing: 2px; margin-bottom: 25px; }
+            .tv-live-match { color: #fff; font-size: 5rem; font-weight: 900; line-height: 1.1; }
+            .tv-live-vs { color: #555; font-size: 3rem; margin: 0 20px; }
+            .tv-live-score { color: #39FF14; font-size: 7rem; font-family: 'Courier New', monospace; font-weight: bold; background: #000; padding: 10px 50px; border-radius: 20px; display: inline-block; margin-top: 30px; border: 3px solid #222; text-shadow: 0 0 15px #39FF14; }
+
+            .tv-panel { background: #111; border: 2px solid #333; border-top: 6px solid #39FF14; border-radius: 20px; padding: 30px; height: 100%; }
+            .tv-panel-title { color: #39FF14; font-size: 2.2rem; font-weight: bold; margin-bottom: 25px; text-align: center; border-bottom: 2px solid #333; padding-bottom: 15px; text-transform: uppercase; }
+            
+            .tv-match-row { font-size: 1.8rem; color: #fff; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #222; padding-bottom: 15px; }
+            .tv-time-badge { color: #FF9100; font-weight: bold; background: rgba(255, 145, 0, 0.15); padding: 5px 15px; border-radius: 10px; }
+            
+            .tv-rank-row { font-size: 2rem; color: #fff; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
+            .tv-rank-pts { color: #00E676; font-weight: bold; font-family: 'Courier New', Courier, monospace; }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<div class='tv-title'>📺 TRANSMISIÓN EN VIVO</div>", unsafe_allow_html=True)
+
+    # 3. SECCIÓN CENTRAL: PARTIDO EN VIVO
+    df_live = obtener_partido_en_vivo()
+    if df_live is not None and not df_live.empty:
+        live = df_live.iloc[0]
+        match_html = f"{live['pareja1']} <span class='tv-live-vs'>VS</span> {live['pareja2']}"
+        score_html = live['marcador']
+    else:
+        # Sin partido activo
+        match_html = "ESPERANDO PARTIDO <span class='tv-live-vs'>...</span>"
+        score_html = "EN BREVE"
+
+    st.markdown(f"""
+        <div class="tv-live-card">
+            <div class="tv-live-header">🔴 PARTIDO EN JUEGO - CANCHA CENTRAL</div>
+            <div class="tv-live-match">{match_html}</div>
+            <div class="tv-live-score">{score_html}</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # 4. PANELES INFERIORES: PRÓXIMOS PARTIDOS Y RANKING
+    col_tv1, col_tv2 = st.columns(2, gap="large")
+
+    with col_tv1:
+        st.markdown("<div class='tv-panel'><div class='tv-panel-title'>🕒 Próximos Partidos</div>", unsafe_allow_html=True)
+        df_next = cargar_datos("SELECT horario, pareja1, pareja2 FROM partidos WHERE estado_partido = 'Próximo' ORDER BY horario ASC LIMIT 3")
+        if df_next is not None and not df_next.empty:
+            for _, row in df_next.iterrows():
+                hora = str(row['horario']).split(' ')[-1] if row['horario'] else "A conf."
+                st.markdown(f"<div class='tv-match-row'><span>{row['pareja1']} vs {row['pareja2']}</span> <span class='tv-time-badge'>{hora}</span></div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div class='tv-match-row'><span style='color: #888; font-size: 1.2rem; text-align: center; width: 100%;'>No hay partidos programados</span></div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col_tv2:
+        st.markdown("<div class='tv-panel'><div class='tv-panel-title'>🏆 Top 5 Ranking</div>", unsafe_allow_html=True)
+        df_rank = cargar_datos("SELECT jugador, SUM(puntos) as total FROM ranking_puntos GROUP BY jugador ORDER BY total DESC LIMIT 5")
+        if df_rank is not None and not df_rank.empty:
+            for i, row in df_rank.iterrows():
+                medal = "🥇" if i==0 else "🥈" if i==1 else "🥉" if i==2 else f"#{i+1}"
+                st.markdown(f"<div class='tv-rank-row'><span>{medal} {row['jugador']}</span> <span class='tv-rank-pts'>{row['total']}</span></div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div class='tv-rank-row'><span style='color: #888; font-size: 1.2rem; text-align: center; width: 100%;'>Aún no hay puntos registrados</span></div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# --- ENRUTADOR DE VISTAS (NAVEGACIÓN) ---
+if choice == "🏆 Inicio":
+    mostrar_inicio()
+elif choice == "📅 Fixture y Horarios":
+    mostrar_fixture()
+elif choice == "📊 Posiciones":
+    mostrar_posiciones()
 elif choice == "📈 Ranking":
+    # Función local existente
     show_ranking_content()
+elif choice == "👥 Jugadores":
+    mostrar_jugadores()
+elif choice == "📍 Sede":
+    mostrar_sede()
+elif choice == "📺 Pantalla TV":
+    mostrar_transmision()
+elif choice == "🏠 Mi Panel":
+    mostrar_panel_usuario()
+elif choice == "⚙️ Admin":
+    mostrar_panel_admin()
+elif choice == "💻 Simulador":
+    # Función externa/local
+    mostrar_simulador()

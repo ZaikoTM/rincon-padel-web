@@ -71,6 +71,11 @@ def run_action(query, params=None, return_id=False):
                 else:
                     result = None
             s.commit()
+            
+        # Auto-invalidación de caché al guardar/actualizar datos
+        if query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE")):
+            st.cache_data.clear()
+            
         return result
     except Exception as e:
         st.error(f'❌ Error de Conexión: {str(e)}')
@@ -78,48 +83,102 @@ def run_action(query, params=None, return_id=False):
 
 @st.cache_resource
 def init_db():
-    run_action('''CREATE TABLE IF NOT EXISTS inscripciones
-                 (id SERIAL PRIMARY KEY, torneo_id INTEGER, jugador1 TEXT, jugador2 TEXT, localidad TEXT, 
-                  categoria TEXT, pago_confirmado INTEGER, telefono1 TEXT, telefono2 TEXT,
-                  estado_pago TEXT DEFAULT 'Pendiente', estado_validacion TEXT DEFAULT 'Pendiente')''')
-    run_action('''CREATE TABLE IF NOT EXISTS torneos
-                 (id SERIAL PRIMARY KEY, nombre TEXT, fecha TEXT, categoria TEXT, estado TEXT, es_puntuable INTEGER DEFAULT 1,
-                  super_tiebreak INTEGER DEFAULT 0, puntos_tiebreak INTEGER DEFAULT 10, fecha_inicio DATE, fecha_fin DATE)''')
-    run_action('''CREATE TABLE IF NOT EXISTS partidos
-                 (id SERIAL PRIMARY KEY, torneo_id INTEGER, pareja1 TEXT, pareja2 TEXT, resultado TEXT, instancia TEXT,
-                  bracket_pos INTEGER, estado_partido TEXT DEFAULT 'Próximo', ganador TEXT, horario TEXT, cancha TEXT,
-                  hora_fin TEXT, set1 TEXT, set2 TEXT, set3 TEXT, hora_inicio_real TEXT)''')
-    run_action('''CREATE TABLE IF NOT EXISTS zonas (id SERIAL PRIMARY KEY, torneo_id INTEGER, nombre_zona TEXT, pareja TEXT)''')
-    run_action('''CREATE TABLE IF NOT EXISTS fotos (id SERIAL PRIMARY KEY, nombre TEXT, imagen BYTEA, fecha TEXT)''')
-    run_action('''CREATE TABLE IF NOT EXISTS jugadores
-                 (id SERIAL PRIMARY KEY, dni TEXT UNIQUE, celular TEXT UNIQUE, password TEXT, nombre TEXT, apellido TEXT,
-                  localidad TEXT, categoria_actual TEXT, categoria_anterior TEXT, foto BYTEA, estado_cuenta TEXT DEFAULT 'Pendiente')''')
-    run_action('''CREATE TABLE IF NOT EXISTS eventos (id SERIAL PRIMARY KEY, torneo_id INTEGER, afiche TEXT)''')
-    run_action('''CREATE TABLE IF NOT EXISTS zonas_posiciones
-                 (id SERIAL PRIMARY KEY, torneo_id INTEGER, nombre_zona TEXT, pareja TEXT,
-                  pts INTEGER DEFAULT 0, pj INTEGER DEFAULT 0, pg INTEGER DEFAULT 0, pp INTEGER DEFAULT 0, 
-                  sf INTEGER DEFAULT 0, sc INTEGER DEFAULT 0, ds INTEGER DEFAULT 0)''')
-    run_action('''CREATE TABLE IF NOT EXISTS ranking_puntos (id SERIAL PRIMARY KEY, torneo_id INTEGER, jugador TEXT, categoria TEXT, puntos INTEGER)''')
-    run_action('''CREATE TABLE IF NOT EXISTS partido_en_vivo (id SERIAL PRIMARY KEY, torneo TEXT, pareja1 TEXT, pareja2 TEXT, marcador TEXT)''')
+    try:
+        conn = st.connection('postgresql', type='sql', connect_args={'connect_timeout': 30}, pool_pre_ping=True, pool_recycle=300)
+        return conn
+    except Exception as e:
+        st.error(f'Error crítico al conectar a la base de datos: {e}')
+        st.stop()
 
 def limpiar_cache():
     st.cache_data.clear()
 
-@st.cache_data(ttl=60) # Caché optimizado de 60 segundos por defecto
-def get_data(query, params=None):
+def _ejecutar_select_seguro(query, params):
+    """Manejo de conexión seguro y sin pantallas rojas."""
     try:
         params = normalize_params(params)
         conn = st.connection('postgresql', type='sql', connect_args={'connect_timeout': 30}, pool_pre_ping=True, pool_recycle=300)
-        return conn.query(query, params=params, ttl=60)
-    except Exception:
-        time.sleep(1)
-        params = normalize_params(params)
-        conn = st.connection('postgresql', type='sql', connect_args={'connect_timeout': 30}, pool_pre_ping=True, pool_recycle=300)
         return conn.query(query, params=params, ttl=0)
+    except Exception:
+        st.cache_resource.clear()
+        time.sleep(1)
+        try:
+            conn = st.connection('postgresql', type='sql')
+            return conn.query(query, params=params, ttl=0)
+        except Exception:
+            return pd.DataFrame() # Retorna tabla vacía para no romper la app
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_data_lento(query, params=None):
+    """Caché largo (5 min) para Ranking y Jugadores"""
+    return _ejecutar_select_seguro(query, params)
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_data_rapido(query, params=None):
+    """Caché corto (60s) para Vivo, Fixture y Posiciones"""
+    return _ejecutar_select_seguro(query, params)
 
 def cargar_datos(query, params=None):
-    """Carga directa sin caché para datos en tiempo real (admin)."""
-    return get_data(query, params)
+    """Enrutador de Caché Inteligente"""
+    q_upper = query.upper()
+    if "RANKING" in q_upper or "JUGADORES" in q_upper:
+        return get_data_lento(query, params)
+    else:
+        return get_data_rapido(query, params)
+
+def get_data(query, params=None):
+    """Alias para mantener compatibilidad."""
+    return cargar_datos(query, params)
+
+# --- MOTOR ELO (PADEL 2v2) ---
+def calcular_elo_pareja(elo_j1, elo_j2):
+    """
+    Obtiene el nivel combinado del equipo.
+    Para dobles, se suele usar un promedio, o un promedio ponderado 
+    que favorezca ligeramente al mejor jugador (+20%). Aquí usamos promedio simple.
+    """
+    return (elo_j1 + elo_j2) / 2
+
+def calcular_probabilidad_victoria(elo_pareja_a, elo_pareja_b):
+    """Calcula la probabilidad matemática de victoria (Devuelve %)."""
+    prob_a = 1 / (1 + 10 ** ((elo_pareja_b - elo_pareja_a) / 400))
+    prob_b = 1 - prob_a
+    return prob_a * 100, prob_b * 100
+
+def actualizar_elos_post_partido(id_g1, id_g2, id_p1, id_p2, k=32):
+    """
+    Recalcula y asigna los nuevos ELOs a los 4 jugadores tras un partido.
+    Se debe llamar a esta función cuando se guarda un resultado final.
+    """
+    # 1. Leer ELOs actuales
+    jugadores = get_data(f"SELECT id, elo_rating FROM jugadores WHERE id IN ({id_g1}, {id_g2}, {id_p1}, {id_p2})")
+    if jugadores is None or jugadores.empty: return False
+    
+    dict_elos = {row['id']: (row['elo_rating'] if pd.notna(row['elo_rating']) else 1500) for _, row in jugadores.iterrows()}
+    
+    elo_g1, elo_g2 = dict_elos.get(id_g1, 1500), dict_elos.get(id_g2, 1500)
+    elo_p1, elo_p2 = dict_elos.get(id_p1, 1500), dict_elos.get(id_p2, 1500)
+    
+    # 2. Cálculos ELO
+    elo_ganadores = calcular_elo_pareja(elo_g1, elo_g2)
+    elo_perdedores = calcular_elo_pareja(elo_p1, elo_p2)
+    
+    prob_ganador, _ = calcular_probabilidad_victoria(elo_ganadores, elo_perdedores)
+    
+    # 3. Factor de ajuste (Delta)
+    delta = k * (1 - (prob_ganador / 100.0))
+    
+    nuevos_elos = {
+        id_g1: round(elo_g1 + delta),
+        id_g2: round(elo_g2 + delta),
+        id_p1: round(elo_p1 - delta),
+        id_p2: round(elo_p2 - delta)
+    }
+    
+    # 4. Impactar Base de Datos
+    for j_id, nuevo_elo in nuevos_elos.items():
+        run_action("UPDATE jugadores SET elo_rating = %(elo)s WHERE id = %(id)s", {"elo": nuevo_elo, "id": j_id})
+    return True
 
 # --- ESTILOS CSS ---
 def cargar_estilos():
