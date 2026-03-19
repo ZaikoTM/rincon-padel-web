@@ -646,6 +646,80 @@ def seccion_gestion_horarios(torneo_id):
                 time.sleep(1)
                 st.rerun()
 
+# --- TABLA DE PUNTOS POR INSTANCIA ---
+# Ganador / Perdedor según instancia del partido
+PUNTOS_RANKING = {
+    "Final":    {"ganador": 200, "perdedor": 150},
+    "Semis":    {"ganador": 150, "perdedor": 100},
+    "Cuartos":  {"ganador": 100, "perdedor": 75},
+    "Octavos":  {"ganador": 75,  "perdedor": 50},
+    "16avos":   {"ganador": 50,  "perdedor": 37},
+    "32avos":   {"ganador": 37,  "perdedor": 25},
+    "Zona":     {"ganador": 25,  "perdedor": 25},
+}
+
+def _asignar_puntos_ranking(partido_id, torneo_id, ganador, perdedor):
+    """
+    Asigna puntos al ranking según la instancia del partido.
+    Inserta o actualiza en la tabla ranking_puntos.
+    Solo asigna si el torneo tiene es_puntuable = 1.
+    """
+    # 1. Verificar que el torneo sea puntuable
+    df_t = cargar_datos(
+        "SELECT es_puntuable, categoria FROM torneos WHERE id = :tid",
+        {"tid": torneo_id}
+    )
+    if df_t is None or df_t.empty:
+        return
+    if not df_t.iloc[0]['es_puntuable']:
+        return
+
+    categoria = df_t.iloc[0]['categoria']
+
+    # 2. Obtener instancia del partido
+    df_p = cargar_datos(
+        "SELECT instancia FROM partidos WHERE id = :pid",
+        {"pid": partido_id}
+    )
+    if df_p is None or df_p.empty:
+        return
+
+    instancia = df_p.iloc[0]['instancia']
+    pts_config = PUNTOS_RANKING.get(instancia, {"ganador": 25, "perdedor": 25})
+    pts_ganador  = pts_config["ganador"]
+    pts_perdedor = pts_config["perdedor"]
+
+    # 3. Función interna para insertar o sumar puntos
+    def _upsert_puntos(jugador, puntos):
+        # Los jugadores en partidos son "Nombre1 - Nombre2" (parejas)
+        # Separamos y asignamos a cada uno individualmente
+        nombres = [n.strip() for n in jugador.split(" - ")] if " - " in jugador else [jugador.strip()]
+        for nombre in nombres:
+            # Verificar si ya existe entrada para este jugador en este torneo
+            df_existe = cargar_datos(
+                "SELECT id, puntos FROM ranking_puntos WHERE jugador = :j AND torneo_id = :tid",
+                {"j": nombre, "tid": torneo_id}
+            )
+            if df_existe is not None and not df_existe.empty:
+                # Sumar puntos a los existentes
+                nuevos_pts = int(df_existe.iloc[0]['puntos']) + puntos
+                run_action(
+                    "UPDATE ranking_puntos SET puntos = :pts WHERE jugador = :j AND torneo_id = :tid",
+                    {"pts": nuevos_pts, "j": nombre, "tid": torneo_id}
+                )
+            else:
+                # Insertar nueva entrada
+                run_action(
+                    """INSERT INTO ranking_puntos (jugador, torneo_id, puntos, categoria)
+                       VALUES (:j, :tid, :pts, :cat)""",
+                    {"j": nombre, "tid": torneo_id, "pts": puntos, "cat": categoria}
+                )
+
+    # 4. Asignar puntos a ganador y perdedor
+    _upsert_puntos(ganador, pts_ganador)
+    _upsert_puntos(perdedor, pts_perdedor)
+
+
 def procesar_resultado(partido_id, score_p1, score_p2, torneo_id):
     sets_p1 = 0
     sets_p2 = 0
@@ -662,7 +736,8 @@ def procesar_resultado(partido_id, score_p1, score_p2, torneo_id):
     if df_partido is None or df_partido.empty: return False
     pareja1 = df_partido.iloc[0]['pareja1']
     pareja2 = df_partido.iloc[0]['pareja2']
-    ganador = pareja1 if sets_p1 > sets_p2 else pareja2
+    ganador  = pareja1 if sets_p1 > sets_p2 else pareja2
+    perdedor = pareja2 if sets_p1 > sets_p2 else pareja1
     query_update = """
         UPDATE partidos SET 
             resultado = :res, 
@@ -682,6 +757,8 @@ def procesar_resultado(partido_id, score_p1, score_p2, torneo_id):
         "id": partido_id
     }
     run_action(query_update, params_update)
+    # --- ASIGNAR PUNTOS AL RANKING AUTOMÁTICAMENTE ---
+    _asignar_puntos_ranking(partido_id, torneo_id, ganador, perdedor)
     actualizar_tabla_posiciones(torneo_id)
     return True
 
