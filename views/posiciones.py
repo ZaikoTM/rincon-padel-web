@@ -38,21 +38,56 @@ def mostrar_posiciones():
                 </style>
                 """
                 st.markdown(css_pos, unsafe_allow_html=True)
+                
+                # Cargamos todos los partidos finalizados de la fase de zonas para no saturar la BD iterando
+                df_partidos_torneo = cargar_datos(
+                    "SELECT pareja1, pareja2, ganador FROM partidos WHERE torneo_id = :id AND instancia = 'Zona' AND estado_partido = 'Finalizado' ORDER BY id ASC", 
+                    {"id": tid}
+                )
 
                 grupos = df_zonas.groupby('nombre_zona')
                 cols = st.columns(2)
                 idx = 0
                 
                 for nombre, df_grupo in grupos:
-                    # Reordenamiento explícito en Pandas
+                    # Reordenamiento por defecto en Pandas (Puntos y Diferencias)
                     df_grupo = df_grupo.sort_values(by=['pts', 'ds', 'dg', 'pg'], ascending=[False, False, False, False])
+                    
+                    # --- SISTEMA DE ELIMINACIÓN MODIFICADA (ZONAS DE 4 CON 4 PARTIDOS JUGADOS) ---
+                    if len(df_grupo) == 4 and df_partidos_torneo is not None and not df_partidos_torneo.empty:
+                        parejas_zona = df_grupo['pareja'].tolist()
+                        
+                        # Filtramos los partidos donde ambos competidores pertenezcan a esta zona en particular
+                        partidos_zona = df_partidos_torneo[
+                            df_partidos_torneo['pareja1'].isin(parejas_zona) & 
+                            df_partidos_torneo['pareja2'].isin(parejas_zona)
+                        ]
+                        
+                        if len(partidos_zona) == 4:
+                            partido_ganadores = partidos_zona.iloc[2] # 3er partido jugado
+                            partido_perdedores = partidos_zona.iloc[3] # 4to partido jugado
+                            
+                            puesto_1 = partido_ganadores['ganador']
+                            puesto_2 = partido_ganadores['pareja1'] if partido_ganadores['pareja2'] == puesto_1 else partido_ganadores['pareja2']
+                            
+                            puesto_3 = partido_perdedores['ganador']
+                            puesto_4 = partido_perdedores['pareja1'] if partido_perdedores['pareja2'] == puesto_3 else partido_perdedores['pareja2']
+                            
+                            # Forzamos el orden exacto manteniendo intactas las demás columnas para no romper los playoffs
+                            orden_forzado = [puesto_1, puesto_2, puesto_3, puesto_4]
+                            # Creamos una columna temporal de índice basada en el orden, ordenamos y la eliminamos
+                            df_grupo['orden_especial'] = df_grupo['pareja'].map(lambda x: orden_forzado.index(x) if x in orden_forzado else 99)
+                            df_grupo = df_grupo.sort_values('orden_especial').drop(columns=['orden_especial'])
                     
                     with cols[idx % 2]:
                         # CONSTRUCCIÓN BLINDADA CON TODAS LAS COLUMNAS
                         html_table = f'<div class="pos-card"><div class="pos-zone-header"><span>{nombre}</span><span>🏆</span></div><table class="pos-table"><thead><tr><th class="col-left">PAREJA</th><th>PJ</th><th>PG</th><th class="hide-mob">PP</th><th class="hide-mob">SF</th><th class="hide-mob">SC</th><th>DS</th><th>DG</th><th>PTS</th></tr></thead><tbody>'
                         
+                        # Lógica dinámica: Si la zona tiene 4 parejas, clasifican 3. Si tiene 3 (o menos), clasifican 2.
+                        limite_clasificados = 3 if len(df_grupo) == 4 else 2
+                        
                         for i, row in enumerate(df_grupo.itertuples()):
-                            is_qualified = i < 2
+                            is_qualified = i < limite_clasificados
                             row_class = "qualified-row" if is_qualified else ""
                             name_class = "qualified-name" if is_qualified else ""
                             check = "✅" if is_qualified else ""

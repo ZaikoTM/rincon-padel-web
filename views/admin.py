@@ -366,6 +366,23 @@ def mostrar_panel_admin():
                             st.info(f"**{nombre}**")
                             for _, row in grupo.iterrows():
                                 st.caption(f"• {row['pareja']}")
+                                
+                    st.markdown("---")
+                    st.markdown("##### 🗑️ Limpiar Partidos por Zona")
+                    nombres_zonas = list(grupos.groups.keys())
+                    zona_a_borrar = st.selectbox("Seleccionar Zona", nombres_zonas, key="sel_zona_borrar")
+                    if st.button(f"Borrar Partidos de {zona_a_borrar}", type="primary"):
+                        run_action("""
+                            DELETE FROM partidos 
+                            WHERE torneo_id = %(tid)s 
+                            AND instancia = 'Zona'
+                            AND pareja1 IN (SELECT pareja FROM zonas WHERE torneo_id = %(tid)s AND nombre_zona = %(zona)s)
+                            AND pareja2 IN (SELECT pareja FROM zonas WHERE torneo_id = %(tid)s AND nombre_zona = %(zona)s)
+                        """, {"tid": int(id_real), "zona": zona_a_borrar})
+                        st.success(f"✅ Partidos de la {zona_a_borrar} eliminados con éxito.")
+                        limpiar_cache()
+                        time.sleep(1)
+                        st.rerun()
 
                 st.markdown("---")
                 # --- BOTÓN INICIAR TORNEO ---

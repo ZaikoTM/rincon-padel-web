@@ -1548,6 +1548,10 @@ def actualizar_tabla_posiciones(torneo_id):
     
     # Obtener partidos jugados
     df_partidos = cargar_datos("SELECT pareja1, pareja2, resultado, ganador, set1, set2, set3 FROM partidos WHERE torneo_id=:torneo_id AND instancia='Zona' AND estado_partido='Finalizado'", {"torneo_id": torneo_id})
+    df_partidos = cargar_datos("SELECT id, pareja1, pareja2, resultado, ganador, set1, set2, set3 FROM partidos WHERE torneo_id=:torneo_id AND instancia='Zona' AND estado_partido='Finalizado' ORDER BY id ASC", {"torneo_id": torneo_id})
+    
+    if df_partidos is None or df_partidos.empty:
+        return
     
     for _, row in df_partidos.iterrows():
         p1, p2, ganador = row['pareja1'], row['pareja2'], row['ganador']
@@ -1599,6 +1603,61 @@ def actualizar_tabla_posiciones(torneo_id):
             # Sumar PP y Pts al Perdedor
             run_action("UPDATE zonas_posiciones SET pts = pts + 1, pp = pp + 1 WHERE torneo_id=%(torneo_id)s AND pareja=%(pareja)s", {"torneo_id": torneo_id, "pareja": perdedor})
             
+    # --- LÓGICA MODIFICADA PARA ZONAS DE 4 ---
+    df_zonas = cargar_datos("SELECT nombre_zona, pareja FROM zonas WHERE torneo_id=:torneo_id", {"torneo_id": torneo_id})
+    if df_zonas is not None and not df_zonas.empty:
+        zonas_dict = {}
+        for _, row in df_zonas.iterrows():
+            z = row['nombre_zona']
+            p = row['pareja']
+            if z not in zonas_dict:
+                zonas_dict[z] = []
+            zonas_dict[z].append(p)
+            
+        for zona, parejas_en_zona in zonas_dict.items():
+            if len(parejas_en_zona) == 4:
+                partidos_zona = []
+                for _, row in df_partidos.iterrows():
+                    if row['pareja1'] in parejas_en_zona and row['pareja2'] in parejas_en_zona:
+                        partidos_zona.append(row)
+                
+                cruce1 = None
+                cruce2 = None
+                for p in partidos_zona:
+                    if cruce1 is None:
+                        cruce1 = p
+                    else:
+                        if p['pareja1'] not in [cruce1['pareja1'], cruce1['pareja2']] and \
+                           p['pareja2'] not in [cruce1['pareja1'], cruce1['pareja2']]:
+                            cruce2 = p
+                            break
+                            
+                if cruce1 and cruce2:
+                    ganador_c1 = cruce1['ganador']
+                    ganador_c2 = cruce2['ganador']
+                    perdedor_c1 = cruce1['pareja2'] if ganador_c1 == cruce1['pareja1'] else cruce1['pareja1']
+                    perdedor_c2 = cruce2['pareja2'] if ganador_c2 == cruce2['pareja1'] else cruce2['pareja1']
+                    
+                    partido_ganadores = None
+                    partido_perdedores = None
+                    for p in partidos_zona:
+                        if p['id'] in [cruce1['id'], cruce2['id']]: continue
+                        if ganador_c1 and ganador_c2 and ((p['pareja1'] == ganador_c1 and p['pareja2'] == ganador_c2) or (p['pareja1'] == ganador_c2 and p['pareja2'] == ganador_c1)):
+                            partido_ganadores = p
+                        if perdedor_c1 and perdedor_c2 and ((p['pareja1'] == perdedor_c1 and p['pareja2'] == perdedor_c2) or (p['pareja1'] == perdedor_c2 and p['pareja2'] == perdedor_c1)):
+                            partido_perdedores = p
+                            
+                    posiciones_forzadas = {}
+                    if partido_ganadores and partido_ganadores['ganador']:
+                        posiciones_forzadas[partido_ganadores['ganador']] = 6
+                        posiciones_forzadas[partido_ganadores['pareja2'] if partido_ganadores['ganador'] == partido_ganadores['pareja1'] else partido_ganadores['pareja1']] = 5
+                    if partido_perdedores and partido_perdedores['ganador']:
+                        posiciones_forzadas[partido_perdedores['ganador']] = 4
+                        posiciones_forzadas[partido_perdedores['pareja2'] if partido_perdedores['ganador'] == partido_perdedores['pareja1'] else partido_perdedores['pareja1']] = 2
+                    
+                    for pareja, pts_forzados in posiciones_forzadas.items():
+                        run_action("UPDATE zonas_posiciones SET pts = %(pts)s WHERE torneo_id=%(torneo_id)s AND pareja=%(pareja)s", {"torneo_id": torneo_id, "pareja": pareja, "pts": pts_forzados})
+                        
     limpiar_cache()
 
 def generar_bracket_inicial(torneo_id):
