@@ -808,7 +808,11 @@ def cerrar_zonas_y_generar_playoffs(torneo_id):
         
         if len(equipos_sorted) >= 1: clasificados.append( (f"1{z_letra} - {equipos_sorted[0]['pareja']}", 1, equipos_sorted[0]) )
         if len(equipos_sorted) >= 2: clasificados.append( (f"2{z_letra} - {equipos_sorted[1]['pareja']}", 2, equipos_sorted[1]) )
-        if len(equipos_sorted) >= 3: terceros.append( (f"3{z_letra} - {equipos_sorted[2]['pareja']}", 3, equipos_sorted[2]) )
+        
+        if len(equipos_sorted) == 4:
+            clasificados.append( (f"3{z_letra} - {equipos_sorted[2]['pareja']}", 3, equipos_sorted[2]) )
+        elif len(equipos_sorted) == 3:
+            terceros.append( (f"3{z_letra} - {equipos_sorted[2]['pareja']}", 3, equipos_sorted[2]) )
 
     num_clasificados_base = len(clasificados)
     
