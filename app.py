@@ -1633,15 +1633,17 @@ def seccion_carga_resultados(torneo_id):
                 v2_3 = cp2_s3.number_input("S3", 0, 15, value=s3_p2, key=f"s3p2_{row['id']}", label_visibility="collapsed")
 
                 st.write("")
-                if st.form_submit_button("💾 Guardar y Finalizar", type="primary", use_container_width=True):
-            btn_text = "🔄 Actualizar Resultado" if row['estado_partido'] == 'Finalizado' else "💾 Guardar y Finalizar"
-            if st.form_submit_button(btn_text, type="primary", use_container_width=True):
+                
+                # Definición del texto del botón y botón de guardado (ÚNICO)
+                btn_text = "🔄 Actualizar Resultado" if row['estado_partido'] == 'Finalizado' else "💾 Guardar y Finalizar"
+                
+                if st.form_submit_button(btn_text, type="primary", use_container_width=True):
                     score_p1 = [v1_1, v1_2, v1_3]
                     score_p2 = [v2_1, v2_2, v2_3]
                     
                     # Validación básica: Al menos un set jugado
                     if sum(score_p1) + sum(score_p2) == 0:
-                         st.error("Carga al menos un game.")
+                        st.error("Carga al menos un game.")
                     else:
                         with custom_spinner():
                             procesar_resultado(row['id'], score_p1, score_p2, torneo_id)
