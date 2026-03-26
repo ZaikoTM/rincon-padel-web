@@ -544,9 +544,9 @@ def cerrar_zonas_y_generar_playoffs(torneo_id):
             VALUES (:tid, :p1, :p2, :inst, 'Próximo', :bp)
         """, {"tid": t_id, "p1": p1, "p2": p2, "inst": instancia, "bp": start_pos + count})
         if ganador:
-            actualizar_bracket(None, t_id, start_pos + count, res, ganador)
             run_action("UPDATE partidos SET estado_partido = 'Finalizado', resultado = 'Pasa Directo', ganador = :g WHERE torneo_id = :tid AND bracket_pos = :bp",
                        {"g": ganador, "tid": t_id, "bp": start_pos + count})
+            avanzar_ganador_playoff(t_id, start_pos + count, ganador)
         count += 1
     limpiar_cache()
     return True, f"✅ Se generaron {count} partidos de {instancia}. (Total: {num_clasificados_base} clasificados + {byes_added} BYEs)."
@@ -878,6 +878,14 @@ def procesar_resultado(partido_id, score_p1, score_p2, torneo_id):
     # --- ASIGNAR PUNTOS AL RANKING AUTOMÁTICAMENTE ---
     _asignar_puntos_ranking(partido_id, torneo_id, ganador, perdedor)
     actualizar_tabla_posiciones(torneo_id)
+    
+    # --- AVANZAR EN BRACKET ---
+    df_p = cargar_datos("SELECT bracket_pos FROM partidos WHERE id = :id", {"id": partido_id})
+    if df_p is not None and not df_p.empty:
+        b_pos = df_p.iloc[0]['bracket_pos']
+        if pd.notna(b_pos):
+            avanzar_ganador_playoff(torneo_id, b_pos, ganador)
+            
     return True
 
 def cronograma_visual(torneo_id):
@@ -897,7 +905,7 @@ def avanzar_ganador_playoff(torneo_id, bracket_pos_actual, ganador):
     }
     
     try:
-        b_pos = int(bracket_pos_actual)
+        b_pos = int(float(bracket_pos_actual))
     except (ValueError, TypeError):
         return
         
@@ -919,16 +927,15 @@ def avanzar_ganador_playoff(torneo_id, bracket_pos_actual, ganador):
 def seccion_carga_resultados(torneo_id):
     st.subheader("🎾 Carga de Resultados")
     df_matches = cargar_datos("""
-        SELECT id, pareja1, pareja2, instancia, cancha, horario, estado_partido, set1, set2, set3 
+        SELECT id, pareja1, pareja2, instancia, cancha, horario, estado_partido, set1, set2, set3, bracket_pos 
         FROM partidos 
         WHERE torneo_id = :tid 
-        AND estado_partido != 'Finalizado' 
         ORDER BY horario ASC, id ASC
     """, {"tid": torneo_id})
     if df_matches is None or df_matches.empty:
-        st.info("No hay partidos de zona pendientes para cargar resultados.")
+        st.info("No hay partidos programados para cargar resultados.")
         return
-    st.caption("⚡ Modo Rápido (Móvil): Usa 'Iniciar' para vivo. Edita los games y guarda para finalizar.")
+    st.caption("⚡ Modo Rápido (Móvil): Usa 'Iniciar' para vivo. Edita los games y guarda para finalizar/actualizar.")
     for idx, row in df_matches.iterrows():
         def parse_set(val):
             if val and '-' in str(val):
@@ -967,27 +974,22 @@ def seccion_carga_resultados(torneo_id):
                 v2_2 = cp2_s2.number_input("S2", 0, 7, value=s2_p2, key=f"s2p2_{row['id']}", label_visibility="collapsed")
                 v2_3 = cp2_s3.number_input("S3", 0, 15, value=s3_p2, key=f"s3p2_{row['id']}", label_visibility="collapsed")
                 st.write("")
-                if st.form_submit_button("💾 Guardar y Finalizar", type="primary", use_container_width=True):
-                    score_p1 = [v1_1, v1_2, v1_3]
-                    score_p2 = [v2_1, v2_2, v2_3]
-                    if sum(score_p1) + sum(score_p2) == 0:
-                         st.error("Carga al menos un game.")
-                    else:
-                        with custom_spinner():
-                            procesar_resultado(row['id'], score_p1, score_p2, torneo_id)
+                btn_text = "🔄 Actualizar Resultado" if row['estado_partido'] == 'Finalizado' else "💾 Guardar y Finalizar"
+                
+                # LA INDENTACIÓN ESTÁ PERFECTA AQUÍ
+                if st.form_submit_button(btn_text, type="primary", use_container_width=True):
+                        score_p1 = [v1_1, v1_2, v1_3]
+                        score_p2 = [v2_1, v2_2, v2_3]
+                        if sum(score_p1) + sum(score_p2) == 0:
+                            st.error("Carga al menos un game.")
+                        else:
+                            with custom_spinner():
+                                procesar_resultado(row['id'], score_p1, score_p2, torneo_id)
                             
-                            # --- NUEVO: Avanzar en Bracket ---
-                            df_partido = cargar_datos("SELECT bracket_pos, ganador FROM partidos WHERE id = :id", {"id": row['id']})
-                            if df_partido is not None and not df_partido.empty:
-                                b_pos = df_partido.iloc[0]['bracket_pos']
-                                win = df_partido.iloc[0]['ganador']
-                                if pd.notna(b_pos) and pd.notna(win) and win:
-                                    avanzar_ganador_playoff(torneo_id, b_pos, win)
-                                    
-                        st.success("✅ Guardado")
-                        limpiar_cache()
-                        time.sleep(1)
-                        st.rerun()
+                            st.success("✅ Guardado")
+                            limpiar_cache()
+                            time.sleep(1)
+                            st.rerun()
 
 def verificador_cupos():
     st.subheader("🚦 Semáforo de Inscripciones (Torneos Abiertos)")
@@ -2131,4 +2133,5 @@ def show_torneos_eventos_content():
             # 5. LLAVES (Bracket)
             with tab_llaves:
                 st.markdown("<div class='zona-header'>CUADRO FINAL</div>", unsafe_allow_html=True)
+                mostrar_cuadro_playoff(torneo_id)
                 mostrar_cuadro_playoff(torneo_id)

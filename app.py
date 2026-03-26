@@ -912,19 +912,13 @@ def interfaz_armado_manual_cuadro(torneo_id):
             # Insertamos el partido
             bp = start_pos + i
             run_action("""
-                INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido, bracket_pos)
-                VALUES (:tid, :p1, :p2, :inst, :est, :bp)
-            """, {"tid": t_id, "p1": real_p1, "p2": real_p2, "inst": instancia, "est": 'Próximo' if not ganador else 'Finalizado', "bp": bp})
+                INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido, bracket_pos, resultado, ganador)
+                VALUES (:tid, :p1, :p2, :inst, :est, :bp, :res, :gan)
+            """, {"tid": t_id, "p1": real_p1, "p2": real_p2, "inst": instancia, "est": estado, "bp": bp, "res": res, "gan": ganador})
             
             # Si hubo un BYE, actualizamos directo
             if ganador:
-                run_action("UPDATE partidos SET estado_partido = 'Finalizado', resultado = 'Pasa Directo', ganador = :g WHERE torneo_id = :tid AND bracket_pos = :bp",
-                           {"g": ganador, "tid": t_id, "bp": bp})
-                # Llamada a tu funcion de actualizar bracket
-                try:
-                    actualizar_bracket(None, t_id, bp, res, ganador)
-                except Exception as e:
-                    pass # Evitamos que falle si actualizar_bracket necesita un ID específico de partido
+                avanzar_ganador_playoff(t_id, bp, ganador)
             
             count += 1
             
@@ -1083,14 +1077,12 @@ def cerrar_zonas_y_generar_playoffs(torneo_id, manual_positions=None):
             res = 'BYE'
             
         run_action("""
-            INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido, bracket_pos)
-            VALUES (:tid, :p1, :p2, :inst, 'Próximo', :bp)
-        """, {"tid": t_id, "p1": p1, "p2": p2, "inst": instancia, "bp": start_pos + count})
+            INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido, bracket_pos, resultado, ganador)
+            VALUES (:tid, :p1, :p2, :inst, :est, :bp, :res, :gan)
+        """, {"tid": t_id, "p1": p1, "p2": p2, "inst": instancia, "est": estado, "bp": start_pos + count, "res": res, "gan": ganador})
         
         if ganador:
-            actualizar_bracket(None, t_id, start_pos + count, res, ganador)
-            run_action("UPDATE partidos SET estado_partido = 'Finalizado', resultado = 'Pasa Directo', ganador = :g WHERE torneo_id = :tid AND bracket_pos = :bp",
-                       {"g": ganador, "tid": t_id, "bp": start_pos + count})
+            avanzar_ganador_playoff(t_id, start_pos + count, ganador)
 
         count += 1
         
@@ -1245,10 +1237,10 @@ def mostrar_cuadro_playoff(torneo_id):
 
 def dibujar_bracket_fase_final(torneo_id):
     query = """
-        SELECT id, instancia, pareja1, pareja2, ganador, resultado 
+        SELECT bracket_pos, pareja1, pareja2, ganador, resultado 
         FROM partidos 
-        WHERE torneo_id = %(torneo_id)s AND instancia IN ('Semis', 'Final')
-        ORDER BY id ASC
+        WHERE torneo_id = %(torneo_id)s AND bracket_pos IS NOT NULL
+        ORDER BY bracket_pos ASC
     """
     df_partidos = cargar_datos(query, {"torneo_id": torneo_id})
     
@@ -1256,51 +1248,80 @@ def dibujar_bracket_fase_final(torneo_id):
         st.info("Aún no hay partidos de fase final generados.")
         return
 
-    semis = df_partidos[df_partidos['instancia'] == 'Semis']
-    final = df_partidos[df_partidos['instancia'] == 'Final']
+    matches = df_partidos.set_index('bracket_pos').to_dict('index')
 
-    c1, c2, c3 = st.columns([2, 1, 2])
+    def get_match_html(pos):
+        m = matches.get(pos, {})
+        p1 = m.get('pareja1', 'TBD') or 'TBD'
+        p2 = m.get('pareja2', 'TBD') or 'TBD'
+        ganador = m.get('ganador')
+        resultado = m.get('resultado', '')
+        
+        s_p1 = ""
+        s_p2 = ""
+        if resultado and isinstance(resultado, str):
+            s_p1_list = []
+            s_p2_list = []
+            for s in resultado.split():
+                if '-' in s:
+                    parts = s.split('-')
+                    s_p1_list.append(parts[0])
+                    if len(parts) > 1:
+                        s_p2_list.append(parts[1])
+            s_p1 = " ".join(s_p1_list)
+            s_p2 = " ".join(s_p2_list)
 
-    with c1:
-        st.markdown("<h4 style='text-align: center; color: #00FF00;'>Semifinales</h4>", unsafe_allow_html=True)
-        if not semis.empty:
-            for _, row in semis.iterrows():
-                with st.container(border=True):
-                    p1 = row['pareja1'] if row['pareja1'] else "TBD"
-                    p2 = row['pareja2'] if row['pareja2'] else "TBD"
-                    ganador = row['ganador']
-                    resultado = row['resultado']
-                    st.markdown(f"🔵 **{p1}**")
-                    st.markdown(f"🔴 **{p2}**")
-                    if resultado:
-                        st.caption(f"Marcador: {resultado}")
-                    if ganador:
-                        st.success(f"✔️ Avanza: {ganador}")
-        else:
-            st.write("Semis no definidas")
+        c1 = "team winner" if ganador and ganador == p1 and p1 != 'TBD' else "team"
+        c2 = "team winner" if ganador and ganador == p2 and p2 != 'TBD' else "team"
 
-    with c2:
-        st.markdown("<br><br><br><div style='text-align: center; font-size: 2rem; color: #39FF14;'>➡️</div><br><br><br><br><br><div style='text-align: center; font-size: 2rem; color: #39FF14;'>➡️</div>", unsafe_allow_html=True)
+        return f'''
+        <div class="match">
+            <div class="{c1}"><span>{p1}</span> <span class="score">{s_p1}</span></div>
+            <div class="{c2}"><span>{p2}</span> <span class="score">{s_p2}</span></div>
+        </div>
+        '''
 
-    with c3:
-        st.markdown("<h4 style='text-align: center; color: #FFD700;'>Final</h4>", unsafe_allow_html=True)
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
-        if not final.empty:
-            for _, row in final.iterrows():
-                with st.container(border=True):
-                    p1 = row['pareja1'] if row['pareja1'] else "TBD"
-                    p2 = row['pareja2'] if row['pareja2'] else "TBD"
-                    ganador = row['ganador']
-                    resultado = row['resultado']
-                    st.markdown(f"🔵 **{p1}**")
-                    st.markdown(f"🔴 **{p2}**")
-                    if resultado:
-                        st.caption(f"Marcador: {resultado}")
-                    if ganador:
-                        st.warning(f"🏆 CAMPEÓN: {ganador}")
-        else:
-            with st.container(border=True):
-                st.markdown("Esperando finalistas...")
+    has_oct = any(k in matches for k in range(1, 9))
+    has_4tos = any(k in matches for k in range(9, 13))
+    has_semis = any(k in matches for k in range(13, 15))
+
+    rounds_html = ""
+    if has_oct:
+        rounds_html += f'<div class="round"><div class="round-title">Octavos</div>{"".join([get_match_html(i) for i in range(1, 9)])}</div>'
+    if has_4tos or has_oct:
+        rounds_html += f'<div class="round"><div class="round-title">Cuartos</div>{"".join([get_match_html(i) for i in range(9, 13)])}</div>'
+    if has_semis or has_4tos or has_oct:
+        rounds_html += f'<div class="round"><div class="round-title">Semis</div>{"".join([get_match_html(i) for i in range(13, 15)])}</div>'
+        
+    rounds_html += f'<div class="round"><div class="round-title">Final</div>{get_match_html(15)}</div>'
+    
+    campeon = matches.get(15, {}).get('ganador', 'TBD') or 'TBD'
+    
+    rounds_html += f'''
+    <div class="round"><div class="round-title">Campeón</div>
+    <div class="match campeon-card winner"><span style="font-size: 24px;">🏆</span><br><span style="font-size: 16px;">{campeon}</span></div></div>
+    '''
+
+    html_code = f"""
+    <!DOCTYPE html><html><head><style>
+        body {{ background: transparent; color: white; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; }}
+        .bracket-wrapper {{ display: flex; flex-direction: row; overflow-x: auto; padding: 20px; gap: 40px; }}
+        .round {{ display: flex; flex-direction: column; justify-content: space-around; min-width: 220px; }}
+        .round-title {{ text-align: center; color: #888; font-size: 14px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 1px; }}
+        .match {{ background: #1A1A1A; border: 1px solid #333; border-radius: 6px; margin: 15px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.3); position: relative; }}
+        .team {{ display: flex; justify-content: space-between; padding: 10px 15px; border-bottom: 1px solid #222; font-size: 14px; }}
+        .team:last-child {{ border-bottom: none; }}
+        .winner {{ color: #00FF00; background: rgba(0, 255, 0, 0.05); font-weight: bold; }}
+        .score {{ font-weight: bold; color: #aaa; letter-spacing: 2px; }}
+        .winner .score {{ color: #00FF00; }}
+        .round:not(:last-child) .match::after {{ content: ''; position: absolute; right: -20px; top: 50%; width: 20px; border-top: 2px solid #444; }}
+        .campeon-card {{ text-align: center; padding: 20px; border: 2px solid #00FF00; box-shadow: 0 0 15px rgba(0, 255, 0, 0.2); }}
+        ::-webkit-scrollbar {{ height: 8px; }} ::-webkit-scrollbar-track {{ background: #111; }} ::-webkit-scrollbar-thumb {{ background: #333; border-radius: 4px; }}
+    </style></head><body>
+    <div class="bracket-wrapper">{rounds_html}</div>
+    </body></html>
+    """
+    components.html(html_code, height=600, scrolling=True)
 
 import random
 import streamlit as st
@@ -1490,6 +1511,13 @@ def procesar_resultado(partido_id, score_p1, score_p2, torneo_id):
     # 3. Recalcular Tabla de Posiciones (Integral)
     actualizar_tabla_posiciones(torneo_id)
     
+    # 4. Avanzar en Playoff si corresponde
+    df_p = cargar_datos("SELECT bracket_pos FROM partidos WHERE id = :id", {"id": partido_id})
+    if df_p is not None and not df_p.empty:
+        b_pos = df_p.iloc[0]['bracket_pos']
+        if pd.notna(b_pos):
+            avanzar_ganador_playoff(torneo_id, b_pos, ganador)
+
     return True
 
 def cronograma_visual(torneo_id):
@@ -1512,7 +1540,7 @@ def avanzar_ganador_playoff(torneo_id, bracket_pos_actual, ganador):
     }
     
     try:
-        b_pos = int(bracket_pos_actual)
+        b_pos = int(float(bracket_pos_actual))
     except (ValueError, TypeError):
         return
         
@@ -1538,7 +1566,7 @@ def seccion_carga_resultados(torneo_id):
     # Filtramos por estado != 'Finalizado' para permitir cargar los que están en juego también
     # MODIFICADO: Incluimos set1, set2, set3 para pre-visualizar si ya hay algo cargado
     df_matches = cargar_datos("""
-        SELECT id, pareja1, pareja2, instancia, cancha, horario, estado_partido, set1, set2, set3 
+        SELECT id, pareja1, pareja2, instancia, cancha, horario, estado_partido, set1, set2, set3, bracket_pos 
         FROM partidos 
         WHERE torneo_id = :tid 
         AND estado_partido != 'Finalizado' 
@@ -1550,6 +1578,7 @@ def seccion_carga_resultados(torneo_id):
         return
 
     st.caption("⚡ Modo Rápido (Móvil): Usa 'Iniciar' para vivo. Edita los games y guarda para finalizar.")
+    st.caption("⚡ Modo Rápido (Móvil): Usa 'Iniciar' para vivo. Edita los games y guarda para finalizar/actualizar.")
 
     # Iterar partidos
     for idx, row in df_matches.iterrows():
@@ -1605,6 +1634,8 @@ def seccion_carga_resultados(torneo_id):
 
                 st.write("")
                 if st.form_submit_button("💾 Guardar y Finalizar", type="primary", use_container_width=True):
+            btn_text = "🔄 Actualizar Resultado" if row['estado_partido'] == 'Finalizado' else "💾 Guardar y Finalizar"
+            if st.form_submit_button(btn_text, type="primary", use_container_width=True):
                     score_p1 = [v1_1, v1_2, v1_3]
                     score_p2 = [v2_1, v2_2, v2_3]
                     
@@ -1615,14 +1646,6 @@ def seccion_carga_resultados(torneo_id):
                         with custom_spinner():
                             procesar_resultado(row['id'], score_p1, score_p2, torneo_id)
                             
-                            # --- NUEVO: Avanzar en Bracket ---
-                            df_partido = cargar_datos("SELECT bracket_pos, ganador FROM partidos WHERE id = :id", {"id": row['id']})
-                            if df_partido is not None and not df_partido.empty:
-                                b_pos = df_partido.iloc[0]['bracket_pos']
-                                win = df_partido.iloc[0]['ganador']
-                                if pd.notna(b_pos) and pd.notna(win) and win:
-                                    avanzar_ganador_playoff(torneo_id, b_pos, win)
-                                    
                         st.success("✅ Guardado")
                         limpiar_cache()
                         time.sleep(1)
@@ -4892,8 +4915,9 @@ def mostrar_panel_admin():
                                                 
                                                 # Actualizar Tablas/Bracket
                                                 actualizar_tabla_posiciones(id_t_live)
-                                                if row['bracket_pos']:
+                                                if pd.notna(row.get('bracket_pos')):
                                                     actualizar_bracket(row['id'], id_t_live, row['bracket_pos'], row['resultado'], winner_sel)
+                                                    avanzar_ganador_playoff(id_t_live, row['bracket_pos'], winner_sel)
                                                 
                                                 st.success("Partido finalizado y procesado.")
                                                 st.rerun()

@@ -4,6 +4,7 @@ import time
 import io
 from datetime import datetime, timedelta
 from PIL import Image
+import pandas as pd
 from helpers import (
     run_action, verificador_cupos, crear_torneo, cargar_datos, limpiar_cache,
     eliminar_pareja_torneo, generar_zonas, generar_partidos_desde_zonas_existentes,
@@ -13,8 +14,79 @@ from helpers import (
     sincronizar_datos_nube_a_local, guardar_foto, registrar_jugador_db, eliminar_jugador,
     detener_partido, actualizar_estado_partido, obtener_puntos_display, sumar_punto,
     actualizar_marcador, actualizar_tabla_posiciones, actualizar_bracket,
-    get_inscripcion_by_pareja, debug_base_datos, generar_partidos_definicion
+        get_inscripcion_by_pareja, debug_base_datos, generar_partidos_definicion, avanzar_ganador_playoff
 )
+
+def gestionar_sponsors_admin_robusta(torneo_id):
+    if not st.session_state.get('es_admin', False):
+        return
+        
+    st.subheader("🤝 Gestión de Sponsors")
+    
+    with st.form("form_nuevo_sponsor"):
+        nombre_sponsor = st.text_input("Nombre del Sponsor*")
+        
+        logo_sponsor_file = st.file_uploader(
+            "Subir logo (Prioridad sobre URL)", 
+            type=['jpg', 'png', 'jpeg']
+        )
+        
+        imagen_url_texto = st.text_input("O pegar URL del logo (si no subes archivo)")
+        
+        if st.form_submit_button("💾 Guardar Sponsor"):
+            if nombre_sponsor:
+                path_final_imagen = ""
+
+                if logo_sponsor_file is not None:
+                    save_path = "static/sponsors"
+                    os.makedirs(save_path, exist_ok=True)
+                    
+                    timestamp = int(time.time())
+                    ext = logo_sponsor_file.name.split('.')[-1]
+                    unique_filename = f"sponsor_{timestamp}.{ext}"
+                    file_path = os.path.join(save_path, unique_filename)
+                    with open(file_path, "wb") as f:
+                        f.write(logo_sponsor_file.getbuffer())
+                        path_final_imagen = f"static/sponsors/{unique_filename}"
+                elif imagen_url_texto:
+                    path_final_imagen = imagen_url_texto
+
+                query = "INSERT INTO sponsors (torneo_id, nombre_sponsor, imagen_url) VALUES (%(torneo_id)s, %(nombre)s, %(url)s)"
+                params = {"torneo_id": torneo_id, "nombre": nombre_sponsor, "url": path_final_imagen}
+                run_action(query, params)
+                st.success(f"Sponsor {nombre_sponsor} agregado correctamente.")
+                st.rerun()
+            else:
+                st.error("El nombre del sponsor es obligatorio.")
+    
+    st.markdown("#### Sponsors Actuales")
+    sponsors = cargar_datos("SELECT id, nombre_sponsor, imagen_url FROM sponsors WHERE torneo_id = %(torneo_id)s", {"torneo_id": torneo_id})
+    
+    if sponsors is not None and not sponsors.empty:
+        for _, row in sponsors.iterrows():
+            col1, col2, col3 = st.columns([1, 3, 1])
+            if row['imagen_url']:
+                try:
+                    col1.image(row['imagen_url'], width=50)
+                except Exception:
+                    col1.warning("Error de imagen")
+            else:
+                col1.write("🏢")
+            col2.write(f"**{row['nombre_sponsor']}**")
+            if col3.button("🗑️ Eliminar", key=f"del_sponsor_{row['id']}"):
+                img_url = row['imagen_url']
+                if img_url and img_url.startswith("static/sponsors"):
+                    try:
+                        os.remove(img_url)
+                    except FileNotFoundError:
+                        pass
+                    except Exception:
+                        pass
+                run_action("DELETE FROM sponsors WHERE id = %(id)s", {"id": row['id']})
+                st.warning("Sponsor eliminado.")
+                st.rerun()
+    else:
+        st.info("No hay sponsors registrados para este torneo.")
 
 def mostrar_panel_admin():
     if not st.session_state.es_admin:
@@ -586,14 +658,12 @@ def mostrar_panel_admin():
                                 p2_db = "" if p2 == "Vacío" else p2
                                     
                                 new_id = run_action('''
-                                    INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido, bracket_pos)
-                                    VALUES (:tid, :p1, :p2, :inst, 'Próximo', :bp) RETURNING id
-                                ''', {"tid": id_real, "p1": p1_db, "p2": p2_db, "inst": instancia, "bp": bp}, return_id=True)
+                                    INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido, bracket_pos, resultado, ganador)
+                                    VALUES (:tid, :p1, :p2, :inst, :est, :bp, :res, :gan) RETURNING id
+                                ''', {"tid": id_real, "p1": p1_db, "p2": p2_db, "inst": instancia, "est": estado, "bp": bp, "res": res, "gan": ganador}, return_id=True)
                                 
                                 if ganador:
-                                    actualizar_bracket(new_id, id_real, bp, res, ganador)
-                                    run_action("UPDATE partidos SET estado_partido = 'Finalizado', resultado = 'Pasa Directo' WHERE id = :id",
-                                               {"id": new_id})
+                                    avanzar_ganador_playoff(id_real, bp, ganador)
                                 count += 1
                             limpiar_cache()
                             st.success(f"Cuadro de {instancia} guardado exitosamente con {count} partidos.")
@@ -612,7 +682,13 @@ def mostrar_panel_admin():
                         col_y, col_n = st.columns(2)
                         if col_y.button("✅ Sí, Generar"):
                             m_pos = manual_positions if tipo_cierre == "Cierre Manual" else None
-                            ok, msg = cerrar_zonas_y_generar_playoffs(id_real, m_pos)
+                            
+                            # Bloque de seguridad en caso de que helpers.py no esté actualizado
+                            try:
+                                ok, msg = cerrar_zonas_y_generar_playoffs(id_real, m_pos)
+                            except TypeError:
+                                ok, msg = cerrar_zonas_y_generar_playoffs(id_real)
+                                
                             if ok:
                                 st.success(msg)
                             else:
@@ -1050,8 +1126,8 @@ def mostrar_panel_admin():
                                                 
                                                 # Actualizar Tablas/Bracket
                                                 actualizar_tabla_posiciones(id_t_live)
-                                                if row['bracket_pos']:
-                                                    actualizar_bracket(row['id'], id_t_live, row['bracket_pos'], row['resultado'], winner_sel)
+                                                if pd.notna(row.get('bracket_pos')):
+                                                    avanzar_ganador_playoff(id_t_live, row['bracket_pos'], winner_sel)
                                                 
                                                 st.success("Partido finalizado y procesado.")
                                                 st.rerun()
@@ -1080,7 +1156,7 @@ def mostrar_panel_admin():
                                 else:
                                     st.caption("Sin datos de contacto.")
                                     url_gen = create_wa_link("", msg_wa)
-                                    st.markdown(f"📲 Chat Genérico")
+                                    st.markdown(f"📲 [Chat Genérico]({url_gen})")
 
                             with col_wa2:
                                 st.caption(f"Pareja 2: {row['pareja2']}")
@@ -1094,7 +1170,7 @@ def mostrar_panel_admin():
                                 else:
                                     st.caption("Sin datos de contacto.")
                                     url_gen = create_wa_link("", msg_wa)
-                                    st.markdown(f"📲 Chat Genérico")
+                                    st.markdown(f"📲 [Chat Genérico]({url_gen})")
 
                 else:
                     st.info("No hay partidos pendientes en este torneo.")
