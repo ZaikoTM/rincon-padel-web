@@ -3125,13 +3125,39 @@ def gestionar_sponsors_admin(torneo_id):
     st.subheader("🤝 Gestión de Sponsors")
     
     with st.form("form_nuevo_sponsor"):
-        nombre_sponsor = st.text_input("Nombre del Sponsor")
-        imagen_url = st.text_input("URL de la Imagen (Logo)")
+        nombre_sponsor = st.text_input("Nombre del Sponsor*")
+        
+        logo_sponsor_file = st.file_uploader(
+            "Subir logo (Prioridad sobre URL)", 
+            type=['jpg', 'png', 'jpeg']
+        )
+        
+        imagen_url_texto = st.text_input("O pegar URL del logo (si no subes archivo)")
         
         if st.form_submit_button("💾 Guardar Sponsor"):
             if nombre_sponsor:
+                path_final_imagen = ""
+
+                # Prioridad al archivo subido
+                if logo_sponsor_file is not None:
+                    # Crear directorio si no existe
+                    save_path = "static/sponsors"
+                    os.makedirs(save_path, exist_ok=True)
+                    
+                    # Guardar el archivo físico
+                    timestamp = int(time.time())
+                    ext = logo_sponsor_file.name.split('.')[-1]
+                    unique_filename = f"sponsor_{timestamp}.{ext}"
+                    file_path = os.path.join(save_path, unique_filename)
+                    with open(file_path, "wb") as f:
+                        f.write(logo_sponsor_file.getbuffer())
+                    path_final_imagen = file_path
+                # Si no hay archivo, usar la URL de texto
+                elif imagen_url_texto:
+                    path_final_imagen = imagen_url_texto
+
                 query = "INSERT INTO sponsors (torneo_id, nombre_sponsor, imagen_url) VALUES (%(torneo_id)s, %(nombre)s, %(url)s)"
-                params = {"torneo_id": torneo_id, "nombre": nombre_sponsor, "url": imagen_url}
+                params = {"torneo_id": torneo_id, "nombre": nombre_sponsor, "url": path_final_imagen}
                 run_action(query, params)
                 st.success(f"Sponsor {nombre_sponsor} agregado correctamente.")
                 st.rerun()
@@ -3150,6 +3176,12 @@ def gestionar_sponsors_admin(torneo_id):
                 col1.write("🏢")
             col2.write(f"**{row['nombre_sponsor']}**")
             if col3.button("🗑️ Eliminar", key=f"del_sponsor_{row['id']}"):
+                img_url = row['imagen_url']
+                if img_url and img_url.startswith("static/sponsors/") and os.path.exists(img_url):
+                    try:
+                        os.remove(img_url)
+                    except Exception:
+                        pass
                 run_action("DELETE FROM sponsors WHERE id = %(id)s", {"id": row['id']})
                 st.warning("Sponsor eliminado.")
                 st.rerun()
@@ -3641,6 +3673,38 @@ def mostrar_fixture():
     else:
         st.warning("Selecciona un torneo para ver el fixture.")
 
+def generar_imagen_clasificados(torneo_id):
+    query = "SELECT pareja, pts FROM zonas_posiciones WHERE torneo_id = :torneo_id ORDER BY pts DESC"
+    df = cargar_datos(query, {"torneo_id": torneo_id})
+    
+    if df is None or df.empty:
+        st.warning("No hay clasificados para este torneo.")
+        return
+
+    img = Image.new('RGB', (1080, 1080), color=(18, 18, 18))
+    draw = ImageDraw.Draw(img)
+    
+    draw.text((100, 100), "Clasificados", fill=(57, 255, 20))
+    
+    y_offset = 200
+    for _, row in df.iterrows():
+        texto = f"{row['pareja']} - {row['pts']} pts"
+        draw.text((100, y_offset), texto, fill=(255, 255, 255))
+        y_offset += 50
+        
+        if y_offset > 1000:
+            break
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    
+    return st.download_button(
+        label="📸 Descargar Imagen para Redes",
+        data=buf.getvalue(),
+        file_name="clasificados.png",
+        mime="image/png"
+    )
+
 def mostrar_posiciones():
         tid = st.session_state.get('id_torneo')
         if tid:
@@ -3764,6 +3828,11 @@ def mostrar_posiciones():
                         
                         st.markdown(html_table, unsafe_allow_html=True)
                     idx += 1
+                    
+            st.markdown("---")
+            st.subheader("📲 Compartir Resultados")
+            st.write("Genera una imagen lista para subir a Instagram o WhatsApp con los clasificados.")
+            generar_imagen_clasificados(tid)
         else:
             st.warning("Selecciona un torneo para ver posiciones.")
     
