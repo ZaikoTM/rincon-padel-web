@@ -1,5 +1,39 @@
 import streamlit as st
 from helpers import cargar_datos
+from PIL import Image, ImageDraw
+import io
+
+def generar_imagen_clasificados(torneo_id):
+    query = "SELECT pareja, pts FROM zonas_posiciones WHERE torneo_id = :torneo_id ORDER BY pts DESC"
+    df = cargar_datos(query, {"torneo_id": torneo_id})
+    
+    if df is None or df.empty:
+        st.warning("No hay clasificados para este torneo.")
+        return
+
+    img = Image.new('RGB', (1080, 1080), color=(18, 18, 18))
+    draw = ImageDraw.Draw(img)
+    
+    draw.text((100, 100), "Clasificados", fill=(57, 255, 20))
+    
+    y_offset = 200
+    for _, row in df.iterrows():
+        texto = f"{row['pareja']} - {row['pts']} pts"
+        draw.text((100, y_offset), texto, fill=(255, 255, 255))
+        y_offset += 50
+        
+        if y_offset > 1000:
+            break
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    
+    return st.download_button(
+        label="📸 Descargar Imagen para Redes",
+        data=buf.getvalue(),
+        file_name="clasificados.png",
+        mime="image/png"
+    )
 
 def mostrar_posiciones():
         tid = st.session_state.get('id_torneo')
@@ -64,20 +98,42 @@ def mostrar_posiciones():
                         ]
                         
                         if len(partidos_zona) == 4:
-                            partido_ganadores = partidos_zona.iloc[2] # 3er partido jugado
-                            partido_perdedores = partidos_zona.iloc[3] # 4to partido jugado
-                            
-                            puesto_1 = partido_ganadores['ganador']
-                            puesto_2 = partido_ganadores['pareja1'] if partido_ganadores['pareja2'] == puesto_1 else partido_ganadores['pareja2']
-                            
-                            puesto_3 = partido_perdedores['ganador']
-                            puesto_4 = partido_perdedores['pareja1'] if partido_perdedores['pareja2'] == puesto_3 else partido_perdedores['pareja2']
-                            
-                            # Forzamos el orden exacto manteniendo intactas las demás columnas para no romper los playoffs
-                            orden_forzado = [puesto_1, puesto_2, puesto_3, puesto_4]
-                            # Creamos una columna temporal de índice basada en el orden, ordenamos y la eliminamos
-                            df_grupo['orden_especial'] = df_grupo['pareja'].map(lambda x: orden_forzado.index(x) if x in orden_forzado else 99)
-                            df_grupo = df_grupo.sort_values('orden_especial').drop(columns=['orden_especial'])
+                            cruce1 = partidos_zona.iloc[0]
+                            cruce2 = None
+                            for idx in range(1, 4):
+                                p = partidos_zona.iloc[idx]
+                                if p['pareja1'] not in [cruce1['pareja1'], cruce1['pareja2']] and p['pareja2'] not in [cruce1['pareja1'], cruce1['pareja2']]:
+                                    cruce2 = p
+                                    break
+                            if cruce1 is not None and cruce2 is not None:
+                                ganador_c1 = cruce1['ganador']
+                                ganador_c2 = cruce2['ganador']
+                                perdedor_c1 = cruce1['pareja2'] if ganador_c1 == cruce1['pareja1'] else cruce1['pareja1']
+                                perdedor_c2 = cruce2['pareja2'] if ganador_c2 == cruce2['pareja1'] else cruce2['pareja1']
+
+                                partido_ganadores = None
+                                partido_perdedores = None
+
+                                for idx in range(4):
+                                    p = partidos_zona.iloc[idx]
+                                    if p.name in [cruce1.name, cruce2.name]: continue
+                                    if p['pareja1'] in [ganador_c1, ganador_c2] and p['pareja2'] in [ganador_c1, ganador_c2]:
+                                        partido_ganadores = p
+                                    if p['pareja1'] in [perdedor_c1, perdedor_c2] and p['pareja2'] in [perdedor_c1, perdedor_c2]:
+                                        partido_perdedores = p
+
+                                if partido_ganadores is not None and partido_perdedores is not None:
+                                    puesto_1 = partido_ganadores['ganador']
+                                    puesto_2 = partido_ganadores['pareja1'] if partido_ganadores['pareja2'] == puesto_1 else partido_ganadores['pareja2']
+                                    
+                                    puesto_3 = partido_perdedores['ganador']
+                                    puesto_4 = partido_perdedores['pareja1'] if partido_perdedores['pareja2'] == puesto_3 else partido_perdedores['pareja2']
+                                    
+                                    # Forzamos el orden exacto manteniendo intactas las demás columnas para no romper los playoffs
+                                    orden_forzado = [puesto_1, puesto_2, puesto_3, puesto_4]
+                                    # Creamos una columna temporal de índice basada en el orden, ordenamos y la eliminamos
+                                    df_grupo['orden_especial'] = df_grupo['pareja'].map(lambda x: orden_forzado.index(x) if x in orden_forzado else 99)
+                                    df_grupo = df_grupo.sort_values('orden_especial').drop(columns=['orden_especial'])
                     
                     with cols[idx % 2]:
                         # CONSTRUCCIÓN BLINDADA CON TODAS LAS COLUMNAS
@@ -103,5 +159,10 @@ def mostrar_posiciones():
                         
                         st.markdown(html_table, unsafe_allow_html=True)
                     idx += 1
+                    
+            st.markdown("---")
+            st.subheader("📲 Compartir Resultados")
+            st.write("Genera una imagen lista para subir a Instagram o WhatsApp con los clasificados.")
+            generar_imagen_clasificados(tid)
         else:
             st.warning("Selecciona un torneo para ver posiciones.")

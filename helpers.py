@@ -131,25 +131,29 @@ def guardar_inscripcion(torneo_id, j1, j2, loc, cat, pago, tel1, tel2):
 
 def eliminar_pareja_torneo(pareja_id, torneo_id):
     """Da de baja y elimina una pareja inscrita de un torneo en particular."""
-    if not st.session_state.get('es_admin', False): return
+    if not st.session_state.get('es_admin', False):
+        return
     run_action("DELETE FROM inscripciones WHERE id = %(id)s AND torneo_id = %(torneo_id)s", 
               {"id": pareja_id, "torneo_id": torneo_id})
     limpiar_cache()
 
 def crear_torneo(nombre, fecha, categoria, es_puntuable=True, super_tiebreak=False, puntos_tiebreak=10):
-    if not st.session_state.get('es_admin', False): return None
+    if not st.session_state.get('es_admin', False):
+        return None
     new_id = run_action("INSERT INTO torneos (nombre, fecha, categoria, estado, es_puntuable, super_tiebreak, puntos_tiebreak) VALUES (%(nombre)s, %(fecha)s, %(categoria)s, 'Abierto', %(es_puntuable)s, %(super_tiebreak)s, %(puntos_tiebreak)s) RETURNING id", 
               {"nombre": nombre, "fecha": str(fecha), "categoria": categoria, "es_puntuable": 1 if es_puntuable else 0, "super_tiebreak": 1 if super_tiebreak else 0, "puntos_tiebreak": puntos_tiebreak}, return_id=True)
     limpiar_cache()
     return new_id
 
 def iniciar_torneo(torneo_id):
-    if not st.session_state.get('es_admin', False): return
+    if not st.session_state.get('es_admin', False):
+        return
     run_action("UPDATE torneos SET estado = 'En Juego' WHERE id = %(id)s", {"id": torneo_id})
     limpiar_cache()
 
 def detener_partido(partido_id):
-    if not st.session_state.get('es_admin', False): return
+    if not st.session_state.get('es_admin', False):
+        return
     run_action("UPDATE partidos SET estado_partido = 'Detenido' WHERE id = %(id)s", {"id": partido_id})
     limpiar_cache()
 
@@ -291,7 +295,8 @@ def generar_zonas(torneo_id, categoria, pref_tamano=4):
         return False, f"No hay parejas validadas para {categoria} en el Torneo {torneo_id}."
     parejas = [f"{row['jugador1']} - {row['jugador2']}" for _, row in df_insc.iterrows()]
     n = len(parejas)
-    if n < 3: return False, f"Mínimo 3 parejas (hay {n})."
+    if n < 3:
+        return False, f"Mínimo 3 parejas (hay {n})."
     random.shuffle(parejas)
     q4, q3, found = 0, 0, False
     if pref_tamano == 4:
@@ -330,7 +335,7 @@ def generar_zonas(torneo_id, categoria, pref_tamano=4):
                 INSERT INTO zonas_posiciones (torneo_id, nombre_zona, pareja) 
                 VALUES (:t_id, :nz, :pj)
             """, {"t_id": torneo_id, "nz": nombre_z, "pj": p})
-        cruces = [(0,1), (2,3), (0,2), (1,3), (0,3), (1,2)] if tamano == 4 else [(0,1), (0,2), (1,2)]
+        cruces = [(0,3), (1,2)] if tamano == 4 else [(0,1), (0,2), (1,2)]
         for i1, i2 in cruces:
             run_action("""
                 INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido) 
@@ -338,8 +343,10 @@ def generar_zonas(torneo_id, categoria, pref_tamano=4):
             """, {"t_id": torneo_id, "p1": grupo[i1], "p2": grupo[i2]})
         idx += tamano
         zona_counter += 1
-    for _ in range(q4): procesar_grupo(4)
-    for _ in range(q3): procesar_grupo(3)
+    for _ in range(q4):
+        procesar_grupo(4)
+    for _ in range(q3):
+        procesar_grupo(3)
     st.cache_data.clear()
     return True, f"✅ Éxito: Se crearon {zona_counter} zonas para {categoria}."
 
@@ -364,8 +371,10 @@ def generar_partidos_desde_zonas_existentes(torneo_id):
         n = len(parejas)
         cruces = []
         if n == 3: cruces = [(0,1), (0,2), (1,2)]
-        elif n == 4: cruces = [(0,1), (2,3), (0,2), (1,3), (0,3), (1,2)]
-        elif n == 5: cruces = [(0,1), (0,2), (0,3), (0,4), (1,2), (1,3), (1,4), (2,3), (2,4), (3,4)]
+        elif n == 4:
+            cruces = [(0,3), (1,2)]
+        elif n == 5:
+            cruces = [(0,1), (0,2), (0,3), (0,4), (1,2), (1,3), (1,4), (2,3), (2,4), (3,4)]
         for i1, i2 in cruces:
             if i1 < n and i2 < n:
                 run_action(
@@ -379,8 +388,59 @@ def generar_partidos_desde_zonas_existentes(torneo_id):
     limpiar_cache()
     return True, f"✅ Éxito: Se generaron {count_partidos} partidos para las zonas de este torneo."
 
+def generar_partidos_definicion(torneo_id):
+    if not st.session_state.get('es_admin', False): 
+        return False, "Acceso denegado"
+        
+    try:
+        t_id = int(torneo_id)
+    except:
+        return False, "ID de torneo inválido"
+
+    df_zonas = cargar_datos("SELECT nombre_zona, pareja FROM zonas WHERE torneo_id = :t_id ORDER BY nombre_zona", {"t_id": t_id})
+    if df_zonas is None or df_zonas.empty:
+        return False, "No hay zonas definidas en este torneo."
+        
+    df_partidos = cargar_datos("SELECT id, pareja1, pareja2, ganador, estado_partido FROM partidos WHERE torneo_id = :t_id AND instancia = 'Zona' ORDER BY id ASC", {"t_id": t_id})
+    
+    count_nuevos = 0
+    zonas_dict = {}
+    for _, row in df_zonas.iterrows():
+        z = row['nombre_zona']
+        if z not in zonas_dict: zonas_dict[z] = []
+        zonas_dict[z].append(row['pareja'])
+        
+    for z_name, parejas in zonas_dict.items():
+        if len(parejas) == 4:
+            partidos_zona = []
+            if df_partidos is not None and not df_partidos.empty:
+                for _, p in df_partidos.iterrows():
+                    if p['pareja1'] in parejas and p['pareja2'] in parejas:
+                        partidos_zona.append(p)
+            
+            if len(partidos_zona) == 2:
+                if all(p['estado_partido'] == 'Finalizado' for p in partidos_zona):
+                    ganador_c1 = partidos_zona[0]['ganador']
+                    ganador_c2 = partidos_zona[1]['ganador']
+                    perdedor_c1 = partidos_zona[0]['pareja2'] if ganador_c1 == partidos_zona[0]['pareja1'] else partidos_zona[0]['pareja1']
+                    perdedor_c2 = partidos_zona[1]['pareja2'] if ganador_c2 == partidos_zona[1]['pareja1'] else partidos_zona[1]['pareja1']
+                    
+                    if ganador_c1 and ganador_c2 and perdedor_c1 and perdedor_c2:
+                        run_action("INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido) VALUES (:t_id, :p1, :p2, 'Zona', 'Próximo')", {"t_id": t_id, "p1": ganador_c1, "p2": ganador_c2})
+                        run_action("INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido) VALUES (:t_id, :p1, :p2, 'Zona', 'Próximo')", {"t_id": t_id, "p1": perdedor_c1, "p2": perdedor_c2})
+                        count_nuevos += 2
+                else:
+                    return False, f"La {z_name} aún tiene partidos iniciales sin finalizar."
+                 
+    limpiar_cache()
+    if count_nuevos > 0:
+        return True, f"Se generaron {count_nuevos} partidos de definición."
+    else:
+        return False, "No se generaron partidos (asegúrate de que los iniciales estén finalizados y no se hayan generado ya)."
+
 def cerrar_zonas_y_generar_playoffs(torneo_id):
-    if not st.session_state.get('es_admin', False): return False, "Acceso denegado"
+    if not st.session_state.get('es_admin', False):
+        return False, "Acceso denegado"
     t_id = int(torneo_id)
     df_check = cargar_datos("SELECT count(*) as c FROM partidos WHERE torneo_id = :t_id AND instancia IN ('Octavos', 'Cuartos', 'Semis', 'Final')", {"t_id": t_id})
     if df_check is not None and not df_check.empty and df_check.iloc[0]['c'] > 0:
@@ -391,7 +451,8 @@ def cerrar_zonas_y_generar_playoffs(torneo_id):
         WHERE torneo_id = :t_id 
         ORDER BY pts DESC, ds DESC, dg DESC, pg DESC
     """, {"t_id": t_id})
-    if df is None or df.empty: return False, "No hay zonas registradas con datos."
+    if df is None or df.empty:
+        return False, "No hay zonas registradas con datos."
     zonas_dict = {}
     for _, row in df.iterrows():
         z = row['nombre_zona']
@@ -402,9 +463,10 @@ def cerrar_zonas_y_generar_playoffs(torneo_id):
     for z, equipos in zonas_dict.items():
         equipos_sorted = sorted(equipos, key=lambda x: (x['pts'], x['ds'], x['dg'], x['pg']), reverse=True)
         z_letra = z.replace("Zona ", "").strip()
-        if len(equipos_sorted) >= 1: clasificados.append( (f"1{z_letra} - {equipos_sorted[0]['pareja']}", 1, equipos_sorted[0]) )
-        if len(equipos_sorted) >= 2: clasificados.append( (f"2{z_letra} - {equipos_sorted[1]['pareja']}", 2, equipos_sorted[1]) )
-        if len(equipos_sorted) >= 3: terceros.append( (f"3{z_letra} - {equipos_sorted[2]['pareja']}", 3, equipos_sorted[2]) )
+        if len(equipos_sorted) >= 1:
+            clasificados.append( (f"1{z_letra} - {equipos_sorted[0]['pareja']}", 1, equipos_sorted[0]) )
+        if len(equipos_sorted) >= 2:
+            clasificados.append( (f"2{z_letra} - {equipos_sorted[1]['pareja']}", 2, equipos_sorted[1]) )
         
         if len(equipos_sorted) == 4:
             clasificados.append( (f"3{z_letra} - {equipos_sorted[2]['pareja']}", 3, equipos_sorted[2]) )
@@ -412,9 +474,12 @@ def cerrar_zonas_y_generar_playoffs(torneo_id):
             terceros.append( (f"3{z_letra} - {equipos_sorted[2]['pareja']}", 3, equipos_sorted[2]) )
     num_clasificados_base = len(clasificados)
     target_size = 4
-    if num_clasificados_base > 4: target_size = 8
-    if num_clasificados_base > 8: target_size = 16
-    if num_clasificados_base > 16: target_size = 32
+    if num_clasificados_base > 4:
+        target_size = 8
+    if num_clasificados_base > 8:
+        target_size = 16
+    if num_clasificados_base > 16:
+        target_size = 32
     slots_needed = target_size - num_clasificados_base
     terceros.sort(key=lambda x: (x[2]['pts'], x[2]['ds'], x[2]['dg'], x[2]['pg']), reverse=True)
     while slots_needed > 0 and len(terceros) > 0:
@@ -428,7 +493,8 @@ def cerrar_zonas_y_generar_playoffs(torneo_id):
         byes_added += 1
     def sort_key(item):
         pareja, pos_zona, stats = item
-        if pareja == "BYE": return (-1, -1, -1, -1, -1) 
+        if pareja == "BYE":
+            return (-1, -1, -1, -1, -1) 
         priority_group = 4 - pos_zona
         return (priority_group, stats['pts'], stats['ds'], stats['dg'], stats['pg'])
     clasificados.sort(key=sort_key, reverse=True)
@@ -551,8 +617,10 @@ def mostrar_cuadro_playoff(torneo_id):
             for k in ['set1', 'set2', 'set3']:
                 val = m.get(k)
                 if val and '-' in str(val):
-                    try: res.append(str(val).split('-')[s_idx])
-                    except: pass
+                    try:
+                        res.append(str(val).split('-')[s_idx])
+                    except:
+                        pass
             return " ".join(res)
         s_p1 = get_score(0)
         s_p2 = get_score(1)
@@ -568,9 +636,12 @@ def mostrar_cuadro_playoff(torneo_id):
     has_4tos = any(k in matches for k in range(9, 13))
     has_semis = any(k in matches for k in range(13, 15))
     rounds_html = ""
-    if has_oct: rounds_html += f'<div class="round"><div class="round-title">Octavos</div>{"".join([get_match_html(i) for i in range(1, 9)])}</div>'
-    if has_4tos or has_oct: rounds_html += f'<div class="round"><div class="round-title">Cuartos</div>{"".join([get_match_html(i) for i in range(9, 13)])}</div>'
-    if has_semis or has_4tos: rounds_html += f'<div class="round"><div class="round-title">Semis</div>{"".join([get_match_html(i) for i in range(13, 15)])}</div>'
+    if has_oct:
+        rounds_html += f'<div class="round"><div class="round-title">Octavos</div>{"".join([get_match_html(i) for i in range(1, 9)])}</div>'
+    if has_4tos or has_oct:
+        rounds_html += f'<div class="round"><div class="round-title">Cuartos</div>{"".join([get_match_html(i) for i in range(9, 13)])}</div>'
+    if has_semis or has_4tos:
+        rounds_html += f'<div class="round"><div class="round-title">Semis</div>{"".join([get_match_html(i) for i in range(13, 15)])}</div>'
     rounds_html += f'<div class="round"><div class="round-title">Final</div>{get_match_html(15)}</div>'
     campeon = matches.get(15, {}).get('ganador', '?')
     rounds_html += f"""
@@ -619,8 +690,15 @@ def mostrar_consejo_padel():
 def seccion_gestion_horarios(torneo_id):
     st.subheader("🛠️ Gestión de Horarios (Zona)")
     df = cargar_datos("SELECT id, pareja1, pareja2, horario, cancha FROM partidos WHERE torneo_id = :torneo_id AND instancia = 'Zona' ORDER BY id", params={"torneo_id": int(torneo_id)})
+    st.subheader("🛠️ Gestión Manual de Horarios")
+    st.write("Asigna o edita individualmente el horario y la cancha para los partidos pendientes (Zonas y Playoffs).")
+    
+    # Traemos todos los partidos pendientes (sin importar si son de zona o playoff)
+    df = cargar_datos("SELECT id, instancia, pareja1, pareja2, horario, cancha FROM partidos WHERE torneo_id = :torneo_id AND estado_partido != 'Finalizado' ORDER BY id", params={"torneo_id": int(torneo_id)})
+    
     if df is None or df.empty:
         st.info("No hay partidos de zona generados para este torneo.")
+        st.info("No hay partidos pendientes para gestionar horarios.")
         return
     df['horario'] = pd.to_datetime(df['horario'], errors='coerce')
     edited_df = st.data_editor(
@@ -647,9 +725,41 @@ def seccion_gestion_horarios(torneo_id):
                     updated += 1
             if updated > 0:
                 st.success(f"✅ Se actualizaron {updated} partidos.")
+
+    opciones_canchas = ['Cancha Central', 'Cancha 2', 'Cancha 3']
+
+    # Cabeceras de la tabla visual
+    c_head1, c_head2, c_head3, c_head4 = st.columns([3, 2, 2, 1])
+    c_head1.markdown("**Partido / Instancia**")
+    c_head2.markdown("**Horario (YYYY-MM-DD HH:MM)**")
+    c_head3.markdown("**Cancha**")
+    c_head4.markdown("**Acción**")
+    st.divider()
+
+    for _, row in df.iterrows():
+        with st.container():
+            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+            
+            c1.markdown(f"<span style='font-size:0.85rem; color:#888;'>{row['instancia']}</span><br><b>{row['pareja1']}</b> vs <b>{row['pareja2']}</b>", unsafe_allow_html=True)
+            
+            curr_horario = row['horario'] if row['horario'] else ""
+            nuevo_horario = c2.text_input("Horario", value=curr_horario, key=f"h_{row['id']}", label_visibility="collapsed", placeholder="YYYY-MM-DD HH:MM")
+            
+            curr_cancha = row['cancha'] if row['cancha'] else 'Cancha Central'
+            if curr_cancha not in opciones_canchas: opciones_canchas.append(curr_cancha)
+            nueva_cancha = c3.selectbox("Cancha", options=opciones_canchas, index=opciones_canchas.index(curr_cancha), key=f"c_{row['id']}", label_visibility="collapsed")
+            
+            if c4.button("💾", key=f"btn_h_{row['id']}", help="Guardar horario para este partido"):
+                h_val = nuevo_horario.strip() if nuevo_horario.strip() else None
+                run_action(
+                    "UPDATE partidos SET horario = :h, cancha = :c WHERE id = :id", 
+                    {"h": h_val, "c": nueva_cancha, "id": row['id']}
+                )
+                st.toast(f"✅ Partido #{row['id']} actualizado", icon="💾")
                 limpiar_cache()
                 time.sleep(1)
                 st.rerun()
+        st.divider()
 
 # --- TABLA DE PUNTOS POR INSTANCIA ---
 # Ganador / Perdedor según instancia del partido
@@ -732,10 +842,13 @@ def procesar_resultado(partido_id, score_p1, score_p2, torneo_id):
     for i in range(3):
         g1 = score_p1[i]
         g2 = score_p2[i]
-        if g1 == 0 and g2 == 0: continue
+        if g1 == 0 and g2 == 0:
+            continue
         res_str_parts.append(f"{g1}-{g2}")
-        if g1 > g2: sets_p1 += 1
-        elif g2 > g1: sets_p2 += 1
+        if g1 > g2:
+            sets_p1 += 1
+        elif g2 > g1:
+            sets_p2 += 1
     resultado_final = " ".join(res_str_parts)
     df_partido = cargar_datos("SELECT pareja1, pareja2 FROM partidos WHERE id = :id", {"id": partido_id})
     if df_partido is None or df_partido.empty: return False
@@ -789,8 +902,10 @@ def seccion_carga_resultados(torneo_id):
     for idx, row in df_matches.iterrows():
         def parse_set(val):
             if val and '-' in str(val):
-                try: return int(val.split('-')[0]), int(val.split('-')[1])
-                except: return 0, 0
+                try:
+                    return int(val.split('-')[0]), int(val.split('-')[1])
+                except:
+                    return 0, 0
             return 0, 0
         s1_p1, s1_p2 = parse_set(row['set1'])
         s2_p1, s2_p2 = parse_set(row['set2'])
@@ -847,9 +962,12 @@ def verificador_cupos():
             count = row['cantidad']
             label = f"{row['nombre']}\n({row['categoria']})"
             with cols[index % 4]:
-                if count < 3: st.error(f"**{label}**\n\n🚨 **{count}** Parejas\n\n*CRÍTICO: Insuficiente*")
-                elif count == 3: st.warning(f"**{label}**\n\n⚠️ **{count}** Parejas\n\n*MÍNIMO: Zona Única*")
-                else: st.success(f"**{label}**\n\n✅ **{count}** Parejas\n\n*LISTO: Cupo Completo*")
+                if count < 3:
+                    st.error(f"**{label}**\n\n🚨 **{count}** Parejas\n\n*CRÍTICO: Insuficiente*")
+                elif count == 3:
+                    st.warning(f"**{label}**\n\n⚠️ **{count}** Parejas\n\n*MÍNIMO: Zona Única*")
+                else:
+                    st.success(f"**{label}**\n\n✅ **{count}** Parejas\n\n*LISTO: Cupo Completo*")
     st.divider()
 
 def seccion_transferir_jugadores():
@@ -897,7 +1015,8 @@ def seccion_transferir_jugadores():
                 count_moved += 1
         if count_moved > 0:
             st.success(f"✅ Se movieron {count_moved} parejas al Torneo [ID: {id_destino}].")
-            if count_skipped > 0: st.warning(f"⚠️ Se omitieron {count_skipped} parejas por estar duplicadas en el destino.")
+            if count_skipped > 0:
+                st.warning(f"⚠️ Se omitieron {count_skipped} parejas por estar duplicadas en el destino.")
             st.cache_data.clear()
             time.sleep(2)
             st.rerun()
@@ -927,8 +1046,10 @@ def sincronizar_datos_nube_a_local():
             for i, tabla in enumerate(tablas_a_sincronizar):
                 progress_bar.progress(i / total_tablas, text=f"Descargando tabla: {tabla} ({i+1}/{total_tablas})...")
                 df_nube = cargar_datos(f"SELECT * FROM {tabla}")
-                if df_nube is not None: df_nube.to_sql(tabla, conn_local, if_exists='replace', index=False)
-                else: st.write(f"  -> Tabla `{tabla}` vacía en la nube o no se pudo leer. Omitiendo.")
+                if df_nube is not None:
+                    df_nube.to_sql(tabla, conn_local, if_exists='replace', index=False)
+                else:
+                    st.write(f"  -> Tabla `{tabla}` vacía en la nube o no se pudo leer. Omitiendo.")
             progress_bar.progress(1.0, text="¡Sincronización finalizada!")
             time.sleep(0.5) # Pequeña pausa para que el usuario vea el 100%
 
@@ -968,8 +1089,10 @@ def actualizar_tabla_posiciones(torneo_id):
                     games_p1 += g1
                     games_p2 += g2
                     
-                    if g1 > g2: sets_p1 += 1
-                    elif g2 > g1: sets_p2 += 1
+                    if g1 > g2:
+                        sets_p1 += 1
+                    elif g2 > g1:
+                        sets_p2 += 1
                 except:
                     pass
         
@@ -1059,7 +1182,8 @@ def actualizar_tabla_posiciones(torneo_id):
     limpiar_cache()
 
 def generar_bracket_inicial(torneo_id):
-    if not st.session_state.get('es_admin', False): return False, "Acceso denegado"
+    if not st.session_state.get('es_admin', False):
+        return False, "Acceso denegado"
     
     # Verificar si ya existe cuadro
     df_check = cargar_datos("SELECT count(*) as c FROM partidos WHERE torneo_id = :torneo_id AND bracket_pos IS NOT NULL", {"torneo_id": torneo_id})
@@ -1087,7 +1211,8 @@ def generar_bracket_inicial(torneo_id):
     return True, "Cuadro generado correctamente."
 
 def actualizar_bracket(partido_id, torneo_id, bracket_pos, resultado, ganador_nombre):
-    if not st.session_state.get('es_admin', False): return
+    if not st.session_state.get('es_admin', False):
+        return
     
     # 1. Guardar resultado actual y el GANADOR
     run_action("UPDATE partidos SET resultado = %(resultado)s, ganador = %(ganador)s WHERE id = %(id)s", {"resultado": resultado, "ganador": ganador_nombre, "id": partido_id})
@@ -1115,24 +1240,28 @@ def actualizar_bracket(partido_id, torneo_id, bracket_pos, resultado, ganador_no
     limpiar_cache()
 
 def actualizar_estado_partido(partido_id, nuevo_estado):
-    if not st.session_state.get('es_admin', False): return
+    if not st.session_state.get('es_admin', False):
+        return
     run_action("UPDATE partidos SET estado_partido = %(estado_partido)s WHERE id = %(id)s", {"estado_partido": nuevo_estado, "id": partido_id})
     limpiar_cache()
 
 def actualizar_marcador(partido_id, resultado):
-    if not st.session_state.get('es_admin', False): return
+    if not st.session_state.get('es_admin', False):
+        return
     run_action("UPDATE partidos SET resultado = %(resultado)s WHERE id = %(id)s", {"resultado": resultado, "id": partido_id})
     limpiar_cache()
 
 def guardar_foto(nombre, imagen):
-    if not st.session_state.get('es_admin', False): return
+    if not st.session_state.get('es_admin', False):
+        return
     # Postgres usa BYTEA para binarios, pasamos los bytes directamente
     run_action("INSERT INTO fotos (nombre, imagen, fecha) VALUES (%(nombre)s, %(imagen)s, NOW())", 
               {"nombre": nombre, "imagen": imagen})
     limpiar_cache()
 
 def guardar_jugador(celular, password, nombre, apellido, localidad, cat_actual, cat_anterior, foto_blob):
-    if not st.session_state.get('es_admin', False): return
+    if not st.session_state.get('es_admin', False):
+        return
     # Usamos ON CONFLICT para emular INSERT OR REPLACE de SQLite
     sql = """
     INSERT INTO jugadores (celular, password, nombre, apellido, localidad, categoria_actual, categoria_anterior, foto, estado_cuenta) 
@@ -1150,7 +1279,8 @@ def guardar_jugador(celular, password, nombre, apellido, localidad, cat_actual, 
     limpiar_cache()
 
 def recategorizar_jugador(player_id, nueva_categoria):
-    if not st.session_state.get('es_admin', False): return
+    if not st.session_state.get('es_admin', False):
+        return
     df = cargar_datos("SELECT categoria_actual FROM jugadores WHERE id = :player_id", {"player_id": player_id})
     if df is not None and not df.empty:
         cat_anterior = df.iloc[0]['categoria_actual']

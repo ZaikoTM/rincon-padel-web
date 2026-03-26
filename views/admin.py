@@ -13,7 +13,7 @@ from helpers import (
     sincronizar_datos_nube_a_local, guardar_foto, registrar_jugador_db, eliminar_jugador,
     detener_partido, actualizar_estado_partido, obtener_puntos_display, sumar_punto,
     actualizar_marcador, actualizar_tabla_posiciones, actualizar_bracket,
-    get_inscripcion_by_pareja, debug_base_datos
+    get_inscripcion_by_pareja, debug_base_datos, generar_partidos_definicion
 )
 
 def mostrar_panel_admin():
@@ -368,6 +368,15 @@ def mostrar_panel_admin():
                                 st.caption(f"• {row['pareja']}")
                                 
                     st.markdown("---")
+                    
+                    st.markdown("##### ⚔️ Partidos de Definición (Zonas de 4)")
+                    if st.button("Generar partidos de definición de Zona", type="primary", key="btn_def_zonas"):
+                        ok, msg = generar_partidos_definicion(id_real)
+                        if ok: st.success(msg)
+                        else: st.error(msg)
+                        time.sleep(2)
+                        st.rerun()
+
                     st.markdown("##### 🗑️ Limpiar Partidos por Zona")
                     nombres_zonas = list(grupos.groups.keys())
                     zona_a_borrar = st.selectbox("Seleccionar Zona", nombres_zonas, key="sel_zona_borrar")
@@ -459,23 +468,161 @@ def mostrar_panel_admin():
                 st.markdown("---")
                 st.subheader("4. Fase Final: Playoffs")
                 
-                # Botón con confirmación segura
-                if 'confirm_playoff' not in st.session_state: st.session_state.confirm_playoff = False
+                tipo_cierre = st.radio("Modo de cierre", ["Cierre Automático", "Cierre Manual", "Armado Manual de Llaves"], horizontal=True)
+                manual_positions = {}
+                
+                if tipo_cierre == "Cierre Manual":
+                    st.info("Asigna manualmente las posiciones de cada zona. Los no seleccionados quedarán eliminados.")
+                    df_z_admin = cargar_datos("SELECT nombre_zona, pareja FROM zonas WHERE torneo_id = :tid ORDER BY nombre_zona", {"tid": id_real})
+                    if df_z_admin is not None and not df_z_admin.empty:
+                        for z_name, df_g in df_z_admin.groupby('nombre_zona'):
+                            parejas_zona = df_g['pareja'].tolist()
+                            st.markdown(f"**{z_name}**")
+                            c1, c2, c3 = st.columns(3)
+                            p1 = c1.selectbox(f"1º {z_name}", ["(Ninguno)"] + parejas_zona, key=f"m1_{z_name}_{id_real}")
+                            p2_opts = ["(Ninguno)"] + [p for p in parejas_zona if p != p1 or p1 == "(Ninguno)"]
+                            p2 = c2.selectbox(f"2º {z_name}", p2_opts, key=f"m2_{z_name}_{id_real}")
+                            p3_opts = ["(Ninguno)"] + [p for p in parejas_zona if p not in (p1, p2) or (p == "(Ninguno)")]
+                            p3 = c3.selectbox(f"3º {z_name}", p3_opts, key=f"m3_{z_name}_{id_real}")
+                            manual_positions[z_name] = [p1, p2, p3]
+                elif tipo_cierre == "Armado Manual de Llaves":
+                    st.info("Configura los cruces manualmente asignando parejas a cada posición del cuadro.")
+                    
+                    clasificados_base = []
+                    df_z_pos = cargar_datos("SELECT nombre_zona, pareja, pts, ds, dg, pg FROM zonas_posiciones WHERE torneo_id = :t_id ORDER BY pts DESC, ds DESC, dg DESC, pg DESC", {"t_id": id_real})
+                    if df_z_pos is not None and not df_z_pos.empty:
+                        zonas_dict = {}
+                        for _, row in df_z_pos.iterrows():
+                            z = row['nombre_zona']
+                            if z not in zonas_dict: zonas_dict[z] = []
+                            zonas_dict[z].append(row)
+                            
+                        terceros = []
+                        for z, equipos in zonas_dict.items():
+                            z_letra = z.replace("Zona ", "").strip()
+                            equipos_sorted = sorted(equipos, key=lambda x: (x['pts'], x['ds'], x['dg'], x['pg']), reverse=True)
+                            if len(equipos_sorted) >= 1: clasificados_base.append(f"1{z_letra} - {equipos_sorted[0]['pareja']}")
+                            if len(equipos_sorted) >= 2: clasificados_base.append(f"2{z_letra} - {equipos_sorted[1]['pareja']}")
+                            if len(equipos_sorted) >= 3:
+                                if len(equipos_sorted) == 4:
+                                    clasificados_base.append(f"3{z_letra} - {equipos_sorted[2]['pareja']}")
+                                else:
+                                    terceros.append((f"3{z_letra} - {equipos_sorted[2]['pareja']}", equipos_sorted[2]))
+                        
+                        num_clasificados = len(clasificados_base)
+                        target_size_calc = 4
+                        if num_clasificados > 4: target_size_calc = 8
+                        if num_clasificados > 8: target_size_calc = 16
+                        if num_clasificados > 16: target_size_calc = 32
+                        
+                        slots_needed = target_size_calc - num_clasificados
+                        terceros.sort(key=lambda x: (x[1]['pts'], x[1]['ds'], x[1]['dg'], x[1]['pg']), reverse=True)
+                        while slots_needed > 0 and len(terceros) > 0:
+                            clasificados_base.append(terceros.pop(0)[0])
+                            slots_needed -= 1
+                    else:
+                        df_insc = cargar_datos("SELECT jugador1, jugador2 FROM inscripciones WHERE torneo_id = :tid", {"tid": id_real})
+                        if df_insc is not None and not df_insc.empty:
+                            clasificados_base = [f"{row['jugador1']} - {row['jugador2']}" for _, row in df_insc.iterrows()]
+                        target_size_calc = 8
+                        
+                    opciones_size = [4, 8, 16, 32]
+                    size_idx = opciones_size.index(target_size_calc) if target_size_calc in opciones_size else 1
+                    target_size_sel = st.selectbox("Tamaño del Cuadro (Clasificados calculados: {})".format(len(clasificados_base)), opciones_size, index=size_idx)
+                    
+                    instancia = "Cuartos"
+                    start_pos = 9
+                    if target_size_sel == 16:
+                        instancia = "Octavos"
+                        start_pos = 1
+                    elif target_size_sel == 4:
+                        instancia = "Semis"
+                        start_pos = 13
+                    elif target_size_sel == 32:
+                        instancia = "16avos"
+                        start_pos = -15 
+                        
+                    st.markdown(f"#### Armado de {instancia}")
+                    opciones_parejas = ["BYE", "Vacío"] + clasificados_base
+                    
+                    num_partidos = target_size_sel // 2
+                    cruces_armados = []
+                    
+                    cols = st.columns(2)
+                    for i in range(num_partidos):
+                        with cols[i % 2]:
+                            st.markdown(f"**Partido {i+1}**")
+                            p1 = st.selectbox(f"Pareja 1 (P{i+1})", opciones_parejas, key=f"am_p1_{i}_{id_real}")
+                            p2 = st.selectbox(f"Pareja 2 (P{i+1})", opciones_parejas, key=f"am_p2_{i}_{id_real}")
+                            cruces_armados.append((p1, p2))
+                            st.write("")
+                            
+                    if st.button("💾 Guardar Cuadro Manual", type="primary"):
+                        df_check = cargar_datos("SELECT count(*) as c FROM partidos WHERE torneo_id = :t_id AND instancia IN ('Octavos', 'Cuartos', 'Semis', 'Final')", {"t_id": id_real})
+                        if df_check is not None and not df_check.empty and df_check.iloc[0]['c'] > 0:
+                            st.error("Ya existen partidos de playoff. Por favor limpia los partidos de zona/bracket antes de generar uno nuevo.")
+                        else:
+                            count = 0
+                            for i, (p1, p2) in enumerate(cruces_armados):
+                                bp = start_pos + i
+                                estado = 'Próximo'
+                                res = ''
+                                ganador = None
+                                
+                                if p1 == "BYE" and p2 not in ["BYE", "Vacío"]:
+                                    estado = 'Finalizado'
+                                    ganador = p2
+                                    res = 'BYE'
+                                elif p2 == "BYE" and p1 not in ["BYE", "Vacío"]:
+                                    estado = 'Finalizado'
+                                    ganador = p1
+                                    res = 'BYE'
+                                elif p1 in ["BYE", "Vacío"] and p2 in ["BYE", "Vacío"]:
+                                    estado = 'Finalizado'
+                                    res = 'Vacío'
+                                    ganador = 'Vacío'
+                                
+                                p1_db = "" if p1 == "Vacío" else p1
+                                p2_db = "" if p2 == "Vacío" else p2
+                                    
+                                new_id = run_action('''
+                                    INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido, bracket_pos)
+                                    VALUES (:tid, :p1, :p2, :inst, 'Próximo', :bp) RETURNING id
+                                ''', {"tid": id_real, "p1": p1_db, "p2": p2_db, "inst": instancia, "bp": bp}, return_id=True)
+                                
+                                if ganador:
+                                    actualizar_bracket(new_id, id_real, bp, res, ganador)
+                                    run_action("UPDATE partidos SET estado_partido = 'Finalizado', resultado = 'Pasa Directo' WHERE id = :id",
+                                               {"id": new_id})
+                                count += 1
+                            limpiar_cache()
+                            st.success(f"Cuadro de {instancia} guardado exitosamente con {count} partidos.")
+                            time.sleep(1.5)
+                            st.rerun()
 
-                if st.button("🏆 Finalizar Zonas y Armar Playoff"):
-                    st.session_state.confirm_playoff = True
-
-                if st.session_state.confirm_playoff:
-                    st.warning("⚠️ ¿Estás seguro? Esta acción analizará la tabla de posiciones y generará los cruces automáticamente.")
-                    col_y, col_n = st.columns(2)
-                    if col_y.button("✅ Sí, Generar"):
-                        ok, msg = cerrar_zonas_y_generar_playoffs(id_real)
-                        if ok: st.success(msg)
-                        else: st.error(msg)
-                        st.session_state.confirm_playoff = False
-                        time.sleep(1.5); st.rerun()
-                    if col_n.button("❌ Cancelar"):
-                        st.session_state.confirm_playoff = False; st.rerun()
+                # Botón con confirmación segura para lógicas Automáticas/Manual de Zonas
+                if tipo_cierre in ["Cierre Automático", "Cierre Manual"]:
+                    if 'confirm_playoff' not in st.session_state: st.session_state.confirm_playoff = False
+    
+                    if st.button("🏆 Finalizar Zonas y Armar Playoff"):
+                        st.session_state.confirm_playoff = True
+    
+                    if st.session_state.confirm_playoff:
+                        st.warning("⚠️ ¿Estás seguro? Esta acción generará los cruces eliminatorios.")
+                        col_y, col_n = st.columns(2)
+                        if col_y.button("✅ Sí, Generar"):
+                            m_pos = manual_positions if tipo_cierre == "Cierre Manual" else None
+                            ok, msg = cerrar_zonas_y_generar_playoffs(id_real, m_pos)
+                            if ok:
+                                st.success(msg)
+                            else:
+                                st.error(msg)
+                            st.session_state.confirm_playoff = False
+                            time.sleep(1.5)
+                            st.rerun()
+                        if col_n.button("❌ Cancelar"):
+                            st.session_state.confirm_playoff = False
+                            st.rerun()
                 
                 mostrar_cuadro_playoff(id_real)
 

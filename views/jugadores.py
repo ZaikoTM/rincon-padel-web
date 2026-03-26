@@ -163,8 +163,11 @@ def _mostrar_listado():
                 if st.form_submit_button("Registrar"):
                     if n_dni and n_nombre and n_apellido and n_cel:
                         ok, msg = registrar_jugador_db(n_dni, n_nombre, n_apellido, n_cel, n_cat, "", n_dni)
-                        if ok: st.success("Registrado"); st.rerun()
-                        else:  st.error(msg)
+                        if ok:
+                            st.success("Registrado")
+                            st.rerun()
+                        else:
+                            st.error(msg)
                     else:
                         st.warning("Completa los campos obligatorios.")
 
