@@ -1511,12 +1511,11 @@ def seccion_carga_resultados(torneo_id):
         FROM partidos 
         WHERE torneo_id = :tid 
         AND estado_partido != 'Finalizado' 
-        AND instancia = 'Zona'
         ORDER BY horario ASC, id ASC
     """, {"tid": torneo_id})
     
     if df_matches is None or df_matches.empty:
-        st.info("No hay partidos de zona pendientes para cargar resultados.")
+        st.info("No hay partidos pendientes para cargar resultados.")
         return
 
     st.caption("⚡ Modo Rápido (Móvil): Usa 'Iniciar' para vivo. Edita los games y guarda para finalizar.")
@@ -3118,7 +3117,7 @@ def mostrar_sponsors_sidebar(torneo_id):
 if 'id_torneo' in st.session_state:
     mostrar_sponsors_sidebar(st.session_state.id_torneo)
 
-def gestionar_sponsors_admin(torneo_id):
+def gestionar_sponsors_admin_robusta(torneo_id):
     if not st.session_state.get('es_admin', False):
         return
         
@@ -3151,7 +3150,7 @@ def gestionar_sponsors_admin(torneo_id):
                     file_path = os.path.join(save_path, unique_filename)
                     with open(file_path, "wb") as f:
                         f.write(logo_sponsor_file.getbuffer())
-                    path_final_imagen = file_path
+                        path_final_imagen = f"static/sponsors/{unique_filename}"
                 # Si no hay archivo, usar la URL de texto
                 elif imagen_url_texto:
                     path_final_imagen = imagen_url_texto
@@ -3171,15 +3170,20 @@ def gestionar_sponsors_admin(torneo_id):
         for _, row in sponsors.iterrows():
             col1, col2, col3 = st.columns([1, 3, 1])
             if row['imagen_url']:
-                col1.image(row['imagen_url'], width=50)
+                try:
+                    col1.image(row['imagen_url'], width=50)
+                except Exception:
+                    col1.warning("Error de imagen")
             else:
                 col1.write("🏢")
             col2.write(f"**{row['nombre_sponsor']}**")
             if col3.button("🗑️ Eliminar", key=f"del_sponsor_{row['id']}"):
                 img_url = row['imagen_url']
-                if img_url and img_url.startswith("static/sponsors/") and os.path.exists(img_url):
+                if img_url and img_url.startswith("static/sponsors"):
                     try:
                         os.remove(img_url)
+                    except FileNotFoundError:
+                        pass
                     except Exception:
                         pass
                 run_action("DELETE FROM sponsors WHERE id = %(id)s", {"id": row['id']})
@@ -4070,7 +4074,7 @@ def mostrar_panel_admin():
                 st.markdown("---")
                 
                 # --- GESTION DE SPONSORS ---
-                gestionar_sponsors_admin(id_real)
+                gestionar_sponsors_admin_robusta(id_real)
 
                 st.markdown("---")
                 
