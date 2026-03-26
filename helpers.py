@@ -885,6 +885,37 @@ def cronograma_visual(torneo_id):
     if fig: st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
     else: st.info("Aún no hay horarios asignados para graficar el cronograma.")
 
+def avanzar_ganador_playoff(torneo_id, bracket_pos_actual, ganador):
+    mapa_avances = {
+        1: (9, 'pareja1', 'Cuartos'), 2: (9, 'pareja2', 'Cuartos'),
+        3: (10, 'pareja1', 'Cuartos'), 4: (10, 'pareja2', 'Cuartos'),
+        5: (11, 'pareja1', 'Cuartos'), 6: (11, 'pareja2', 'Cuartos'),
+        7: (12, 'pareja1', 'Cuartos'), 8: (12, 'pareja2', 'Cuartos'),
+        9: (13, 'pareja1', 'Semis'), 10: (13, 'pareja2', 'Semis'),
+        11: (14, 'pareja1', 'Semis'), 12: (14, 'pareja2', 'Semis'),
+        13: (15, 'pareja1', 'Final'), 14: (15, 'pareja2', 'Final')
+    }
+    
+    try:
+        b_pos = int(bracket_pos_actual)
+    except (ValueError, TypeError):
+        return
+        
+    if b_pos in mapa_avances:
+        next_pos, slot, nueva_instancia = mapa_avances[b_pos]
+        df_existe = cargar_datos("SELECT id FROM partidos WHERE torneo_id = :tid AND bracket_pos = :b_pos", {"tid": torneo_id, "b_pos": next_pos})
+        
+        if df_existe is not None and not df_existe.empty:
+            run_action(f"UPDATE partidos SET {slot} = :ganador WHERE torneo_id = :tid AND bracket_pos = :b_pos", {"ganador": ganador, "tid": torneo_id, "b_pos": next_pos})
+        else:
+            p1 = ganador if slot == 'pareja1' else 'TBD'
+            p2 = ganador if slot == 'pareja2' else 'TBD'
+            run_action("""
+                INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido, bracket_pos)
+                VALUES (:tid, :p1, :p2, :inst, 'Próximo', :b_pos)
+            """, {"tid": torneo_id, "p1": p1, "p2": p2, "inst": nueva_instancia, "b_pos": next_pos})
+        limpiar_cache()
+
 def seccion_carga_resultados(torneo_id):
     st.subheader("🎾 Carga de Resultados")
     df_matches = cargar_datos("""
@@ -892,7 +923,6 @@ def seccion_carga_resultados(torneo_id):
         FROM partidos 
         WHERE torneo_id = :tid 
         AND estado_partido != 'Finalizado' 
-        AND instancia = 'Zona'
         ORDER BY horario ASC, id ASC
     """, {"tid": torneo_id})
     if df_matches is None or df_matches.empty:
@@ -945,6 +975,15 @@ def seccion_carga_resultados(torneo_id):
                     else:
                         with custom_spinner():
                             procesar_resultado(row['id'], score_p1, score_p2, torneo_id)
+                            
+                            # --- NUEVO: Avanzar en Bracket ---
+                            df_partido = cargar_datos("SELECT bracket_pos, ganador FROM partidos WHERE id = :id", {"id": row['id']})
+                            if df_partido is not None and not df_partido.empty:
+                                b_pos = df_partido.iloc[0]['bracket_pos']
+                                win = df_partido.iloc[0]['ganador']
+                                if pd.notna(b_pos) and pd.notna(win) and win:
+                                    avanzar_ganador_playoff(torneo_id, b_pos, win)
+                                    
                         st.success("✅ Guardado")
                         limpiar_cache()
                         time.sleep(1)

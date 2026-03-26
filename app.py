@@ -1500,6 +1500,37 @@ def cronograma_visual(torneo_id):
     else:
         st.info("Aún no hay horarios asignados para graficar el cronograma.")
 
+def avanzar_ganador_playoff(torneo_id, bracket_pos_actual, ganador):
+    mapa_avances = {
+        1: (9, 'pareja1', 'Cuartos'), 2: (9, 'pareja2', 'Cuartos'),
+        3: (10, 'pareja1', 'Cuartos'), 4: (10, 'pareja2', 'Cuartos'),
+        5: (11, 'pareja1', 'Cuartos'), 6: (11, 'pareja2', 'Cuartos'),
+        7: (12, 'pareja1', 'Cuartos'), 8: (12, 'pareja2', 'Cuartos'),
+        9: (13, 'pareja1', 'Semis'), 10: (13, 'pareja2', 'Semis'),
+        11: (14, 'pareja1', 'Semis'), 12: (14, 'pareja2', 'Semis'),
+        13: (15, 'pareja1', 'Final'), 14: (15, 'pareja2', 'Final')
+    }
+    
+    try:
+        b_pos = int(bracket_pos_actual)
+    except (ValueError, TypeError):
+        return
+        
+    if b_pos in mapa_avances:
+        next_pos, slot, nueva_instancia = mapa_avances[b_pos]
+        df_existe = cargar_datos("SELECT id FROM partidos WHERE torneo_id = :tid AND bracket_pos = :b_pos", {"tid": torneo_id, "b_pos": next_pos})
+        
+        if df_existe is not None and not df_existe.empty:
+            run_action(f"UPDATE partidos SET {slot} = :ganador WHERE torneo_id = :tid AND bracket_pos = :b_pos", {"ganador": ganador, "tid": torneo_id, "b_pos": next_pos})
+        else:
+            p1 = ganador if slot == 'pareja1' else 'TBD'
+            p2 = ganador if slot == 'pareja2' else 'TBD'
+            run_action("""
+                INSERT INTO partidos (torneo_id, pareja1, pareja2, instancia, estado_partido, bracket_pos)
+                VALUES (:tid, :p1, :p2, :inst, 'Próximo', :b_pos)
+            """, {"tid": torneo_id, "p1": p1, "p2": p2, "inst": nueva_instancia, "b_pos": next_pos})
+        limpiar_cache()
+
 def seccion_carga_resultados(torneo_id):
     st.subheader("🎾 Carga de Resultados")
     
@@ -1583,6 +1614,15 @@ def seccion_carga_resultados(torneo_id):
                     else:
                         with custom_spinner():
                             procesar_resultado(row['id'], score_p1, score_p2, torneo_id)
+                            
+                            # --- NUEVO: Avanzar en Bracket ---
+                            df_partido = cargar_datos("SELECT bracket_pos, ganador FROM partidos WHERE id = :id", {"id": row['id']})
+                            if df_partido is not None and not df_partido.empty:
+                                b_pos = df_partido.iloc[0]['bracket_pos']
+                                win = df_partido.iloc[0]['ganador']
+                                if pd.notna(b_pos) and pd.notna(win) and win:
+                                    avanzar_ganador_playoff(torneo_id, b_pos, win)
+                                    
                         st.success("✅ Guardado")
                         limpiar_cache()
                         time.sleep(1)
@@ -3061,7 +3101,7 @@ if st.secrets.get("MODO_MANTENIMIENTO", False) and not st.session_state.get('es_
     st.stop() # Detiene la ejecución aquí para no mostrar el resto de la app
 
 # --- NAVEGACIÓN PRINCIPAL ---
-menu = ["🏆 Inicio", "📅 Fixture y Horarios", "📊 Posiciones", "📈 Ranking", "👥 Jugadores", "📍 Sede", "📺 Pantalla TV","💻 Simulador"]
+menu = ["🏆 Inicio", "📅 Fixture y Horarios", "📊 Posiciones", "📈 Ranking", "👥 Jugadores", "📷 Fotos", "📍 Sede", "📺 Pantalla TV","💻 Simulador"]
 
 if st.session_state.get('usuario_logueado'):
     menu.append("🏠 Mi Panel")
@@ -4561,32 +4601,27 @@ def mostrar_panel_admin():
                 st.info("El archivo de base de datos local aún no existe. Ejecuta una sincronización primero.")
 
         with tab_admin_fotos:
-            st.subheader("Subir Nueva Foto")
-            st.warning('Para mantener la web rápida, el tamaño máximo por foto es de 2MB')
-            uploaded_file = st.file_uploader("Seleccionar imagen", type=['jpg', 'png', 'jpeg'])
+            st.subheader("📷 Enlace a Galería de Fotos")
+            st.write("Configura un único link de Google Drive (o similar) para la galería de fotos del torneo activo.")
             
-            if uploaded_file is not None:
-                if uploaded_file.size > 2 * 1024 * 1024:
-                    st.error("⚠️ El archivo supera los 2MB. Por favor, comprímelo antes de subirlo.")
-                else:
-                    if st.button("Subir Foto"):
-                        # Optimización de imagen
-                        image = Image.open(uploaded_file)
-                        
-                        # Convertir a RGB para asegurar compatibilidad JPEG
-                        if image.mode in ("RGBA", "P"):
-                            image = image.convert("RGB")
-                            
-                        # Redimensionar para web (Max 1024px)
-                        image.thumbnail((1024, 1024))
-                        
-                        # Guardar en buffer con compresión
-                        img_byte_arr = io.BytesIO()
-                        image.save(img_byte_arr, format='JPEG', quality=85, optimize=True)
-                        
-                        guardar_foto(uploaded_file.name, img_byte_arr.getvalue())
-                        st.success("Foto subida exitosamente.")
-                        st.rerun()
+            torneo_id = st.session_state.get('admin_id_torneo')
+            
+            if torneo_id:
+                df_link = cargar_datos("SELECT link_fotos FROM torneos WHERE id = :tid", {"tid": torneo_id})
+                link_actual = ""
+                if df_link is not None and not df_link.empty and 'link_fotos' in df_link.columns:
+                    link_actual = df_link.iloc[0]['link_fotos']
+                    
+                if link_actual:
+                    st.info(f"🔗 Link actual activo: {link_actual}")
+                
+                nuevo_link = st.text_input("Link de Google Drive con las fotos del torneo", value=link_actual if link_actual else "")
+                
+                if st.button("💾 Guardar Link"):
+                    run_action("UPDATE torneos SET link_fotos = :link WHERE id = :tid", {"link": nuevo_link, "tid": torneo_id})
+                    st.success("✅ Link guardado exitosamente.")
+            else:
+                st.warning("Selecciona un torneo activo en la pestaña 'Gestión de Torneo' primero.")
 
         with tab_carga_puntos:
             st.subheader("📊 Carga de Puntos al Ranking")
@@ -5050,6 +5085,22 @@ def mostrar_transmision():
             st.markdown("<div class='tv-rank-row'><span style='color: #888; font-size: 1.2rem; text-align: center; width: 100%;'>Aún no hay puntos registrados</span></div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
+def mostrar_seccion_fotos(torneo_id):
+    st.title('📷 Galería de Fotos')
+    
+    if not torneo_id:
+        st.warning("Selecciona un torneo en el menú lateral para ver sus fotos.")
+        return
+        
+    df_link = cargar_datos("SELECT link_fotos FROM torneos WHERE id = :tid", {"tid": torneo_id})
+    
+    if df_link is not None and not df_link.empty and 'link_fotos' in df_link.columns and df_link.iloc[0]['link_fotos']:
+        link_obtenido = str(df_link.iloc[0]['link_fotos']).strip()
+        st.write("¡Revive los mejores momentos del torneo! Haz clic en el botón de abajo para acceder a todas las fotos oficiales.")
+        st.link_button("Ir a la carpeta de Google Drive 📁", url=link_obtenido)
+    else:
+        st.info('Las fotos de este torneo aún no están disponibles. ¡Vuelve pronto!')
+
 # --- ENRUTADOR DE VISTAS (NAVEGACIÓN) ---
 if choice == "🏆 Inicio":
     mostrar_inicio()
@@ -5062,6 +5113,8 @@ elif choice == "📈 Ranking":
     show_ranking_content()
 elif choice == "👥 Jugadores":
     mostrar_jugadores()
+elif choice == "📷 Fotos":
+    mostrar_seccion_fotos(st.session_state.get('id_torneo'))
 elif choice == "📍 Sede":
     mostrar_sede()
 elif choice == "📺 Pantalla TV":
